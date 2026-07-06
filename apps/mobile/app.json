@@ -1,0 +1,44 @@
+{
+  "expo": {
+    "name": "VaultChat",
+    "slug": "vaultchat",
+    "version": "0.0.1",
+    "orientation": "portrait",
+    "scheme": "vaultchat",
+    "userInterfaceStyle": "dark",
+    "newArchEnabled": true,
+    "splash": {
+      "backgroundColor": "#0b141a"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.vaultchat.app"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#0b141a"
+      },
+      "package": "com.vaultchat.app"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      [
+        "expo-notifications",
+        {
+          "color": "#00a884"
+        }
+      ]
+    ],
+    "extra": {
+      "apiBaseUrl": "http://localhost:3000",
+      "wsUrl": "ws://localhost:3001",
+      "router": {
+        "origin": false
+      },
+      "eas": {
+        "projectId": "vaultchat-local-dev"
+      }
+    }
+  }
+}

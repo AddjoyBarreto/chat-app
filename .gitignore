@@ -1,0 +1,33 @@
+# dependencies
+node_modules
+.pnpm-store
+
+# build
+dist
+.next
+.turbo
+out
+
+# env
+.env
+.env.local
+.env.*.local
+
+# logs
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea
+.vscode/*
+!.vscode/extensions.json
+
+# test
+coverage
+
+# local encrypted media (dev fallback)
+.data/

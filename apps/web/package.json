@@ -1,0 +1,29 @@
+{
+  "name": "@vaultchat/web",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "dev": "next dev --port 3000",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "@vaultchat/api-core": "workspace:*",
+    "@vaultchat/client": "workspace:*",
+    "@vaultchat/crypto": "workspace:*",
+    "@vaultchat/protocol": "workspace:*",
+    "dotenv": "^16.5.0",
+    "libphonenumber-js": "^1.12.9",
+    "next": "^15.3.4",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "react-virtuoso": "^4.12.5"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.32",
+    "@types/react": "~18.3.23",
+    "@types/react-dom": "~18.3.7",
+    "typescript": "^5.8.3"
+  }
+}

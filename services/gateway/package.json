@@ -1,0 +1,26 @@
+{
+  "name": "@vaultchat/gateway",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "lint": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@vaultchat/api-core": "workspace:*",
+    "@vaultchat/protocol": "workspace:*",
+    "dotenv": "^16.5.0",
+    "ioredis": "^5.6.1",
+    "jose": "^6.0.11",
+    "ws": "^8.18.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.32",
+    "@types/ws": "^8.18.1",
+    "tsx": "^4.20.3",
+    "typescript": "^5.8.3"
+  }
+}

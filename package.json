@@ -1,0 +1,50 @@
+{
+  "name": "vaultchat",
+  "private": true,
+  "scripts": {
+    "build": "turbo build",
+    "dev": "turbo dev",
+    "lint": "turbo lint",
+    "test": "turbo test",
+    "db:generate": "pnpm --filter @vaultchat/db generate",
+    "db:migrate": "pnpm --filter @vaultchat/db migrate",
+    "db:reset": "node scripts/db-reset.mjs",
+    "db:studio": "pnpm --filter @vaultchat/db studio",
+    "crypto:test": "pnpm --filter @vaultchat/crypto test",
+    "setup": "node scripts/setup.mjs",
+    "dev:stack": "concurrently -n web,gateway -c blue,green \"pnpm --filter @vaultchat/web dev\" \"pnpm --filter @vaultchat/gateway dev\"",
+    "infra:up": "docker compose -f infra/docker/docker-compose.yml up -d",
+    "infra:down": "docker compose -f infra/docker/docker-compose.yml down",
+    "infra:wait": "node scripts/wait-for-infra.mjs",
+    "demo": "tsx scripts/phase0-demo.ts",
+    "mobile": "pnpm --filter @vaultchat/mobile dev"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "nanoid": "3.3.7",
+    "tsx": "^4.20.3",
+    "turbo": "^2.5.4",
+    "typescript": "^5.8.3"
+  },
+  "packageManager": "pnpm@10.11.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "pnpm": {
+    "overrides": {
+      "react": "18.3.1",
+      "react-dom": "18.3.1",
+      "react-helmet-async>react-dom": "18.3.1",
+      "@types/react": "~18.3.23",
+      "@types/react-dom": "~18.3.7",
+      "nanoid": "3.3.7"
+    },
+    "packageExtensions": {
+      "postcss": {
+        "dependencies": {
+          "nanoid": "^3.3.7"
+        }
+      }
+    }
+  }
+}

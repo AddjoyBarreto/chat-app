@@ -1,0 +1,64 @@
+# VaultChat — local dev quick start
+
+# 0. Install dependencies + build workspace packages
+pnpm install
+# If install fails with ERR_PNPM_ENOENT reflink errors on macOS, .npmrc already sets
+# package-import-method=copy. If still broken: rm -rf node_modules && pnpm install
+pnpm setup
+
+# 1. Start Docker Desktop, then infrastructure (Postgres, Redis, coturn)
+pnpm infra:up
+pnpm infra:wait
+
+# 2. Environment (repo root — loaded by Next.js and gateway automatically)
+cp .env.example .env
+# Required: set JWT_SECRET to any long random string (32+ chars)
+# Calls: TURN_URL, TURN_SECRET, GATEWAY_PUSH_SECRET, API_BASE_URL (see .env.example)
+
+# 3. Database migrations (includes conversations index + social/channels)
+DATABASE_URL=postgres://vaultchat:vaultchat@localhost:5432/vaultchat pnpm db:migrate
+
+# Fresh start (wipe all users/messages — DB only, keeps schema):
+# DATABASE_URL=postgres://vaultchat:vaultchat@localhost:5432/vaultchat pnpm db:reset
+# Then clear browser localStorage (vaultchat_session, vaultchat_device_*, vaultchat_msg_cache_*)
+
+# If `pnpm run build` fails with "Cannot find module 'nanoid/non-secure'", reinstall deps:
+#   rm -rf node_modules apps/*/node_modules packages/*/node_modules services/*/node_modules
+#   pnpm install
+
+# Auth: register with username, email, password, phone (+country code).
+# Verify email via link (logged in API terminal if SMTP not set).
+# Optional local shortcut: SKIP_EMAIL_VERIFICATION=true in .env
+
+# 4. Start API + WebSocket (one terminal)
+pnpm dev:stack
+# Or separately:
+#   pnpm --filter @vaultchat/web dev      # :3000
+#   pnpm --filter @vaultchat/gateway dev  # :3001
+
+# 5. Web — open http://localhost:3000/chat in two browser tabs
+#    Register two users, start a 1:1 chat, send messages
+#    Optional: 📞 / 📹 voice or video calls (allow mic/camera in browser)
+
+# 6. Mobile (physical device or emulator on same LAN)
+#    Edit apps/mobile/app.json → extra.apiBaseUrl + extra.wsUrl to your machine LAN IP
+#    Example: http://192.168.1.42:3000 and ws://192.168.1.42:3001
+#    For calls on device, also set TURN_URL=turn:<LAN_IP>:3478 in .env
+#    Calls require custom dev build (not Expo Go):
+#      cd apps/mobile && npx expo prebuild && npx expo run:ios
+#    Then: pnpm mobile
+
+# 7. Large media — files over 500 KB use encrypted R2/local storage (no extra config locally)
+#    Web + mobile: attach image/video in chat; small images stay inline
+
+# 8. Groups — web Groups tab or mobile /groups
+#    Admin: tap 🔑 in group header to re-share encryption key with all members
+#    Group media: attach image/video in group chat (same inline/R2 rules as 1:1)
+
+# Notes
+# - Group chat, push, inline images: supported on web + mobile
+# - R2 media (large files): configure R2_* vars in .env (optional locally)
+# - Do NOT use root `pnpm dev` for first run — it starts all packages + Expo
+
+
+pnpm install && pnpm --filter @vaultchat/{protocol,crypto,api-core,client} build 2>&1

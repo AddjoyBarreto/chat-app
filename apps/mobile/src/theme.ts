@@ -1,0 +1,17 @@
+export const theme = {
+  bgApp: "#0b141a",
+  bgPanel: "#111b21",
+  bgHeader: "#202c33",
+  bgInput: "#2a3942",
+  bgBubbleOut: "#005c4b",
+  bgBubbleIn: "#202c33",
+  textPrimary: "#e9edef",
+  textSecondary: "#8696a0",
+  textMuted: "#667781",
+  accent: "#00a884",
+  accentHover: "#06cf9c",
+  danger: "#ea4335",
+  warning: "#fbbf24",
+  online: "#25d366",
+  border: "#222d34",
+};

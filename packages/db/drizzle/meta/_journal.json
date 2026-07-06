@@ -1,0 +1,41 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1781288811034,
+      "tag": "0000_blushing_diamondback",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1781289812881,
+      "tag": "0001_skinny_captain_britain",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1781291000000,
+      "tag": "0002_user_credentials",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1781292000000,
+      "tag": "0003_conversations_and_indexes",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1781294000000,
+      "tag": "0005_sender_ciphertexts",
+      "breakpoints": true
+    }
+  ]
+}

@@ -21,6 +21,7 @@ interface AuthenticatedSocket extends WebSocket {
 }
 
 const redisSub = new Redis(REDIS_URL);
+const redis = new Redis(REDIS_URL);
 
 const clientsByUser = new Map<string, Set<AuthenticatedSocket>>();
 
@@ -123,7 +124,7 @@ wss.on("connection", (ws: AuthenticatedSocket) => {
       ] as const;
 
       if ((callTypes as readonly string[]).includes(event.type)) {
-        const err = handleCallEvent(ws.userId, event, sendToUser);
+        const err = await handleCallEvent(redis, ws.userId, event, sendToUser);
         if (err) send(ws, err);
         return;
       }
@@ -136,7 +137,7 @@ wss.on("connection", (ws: AuthenticatedSocket) => {
 
   ws.on("close", () => {
     if (ws.userId) {
-      cleanupCallsForUser(ws.userId, sendToUser);
+      void cleanupCallsForUser(redis, ws.userId, sendToUser);
       removeClient(ws.userId, ws);
     }
   });

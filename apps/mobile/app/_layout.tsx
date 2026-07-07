@@ -3,6 +3,7 @@ import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { AppProvider } from "@/context/AppContext";
 import { CallProvider } from "@/context/CallContext";
+import { FriendsProvider } from "@/context/FriendsContext";
 import { bootstrapClient } from "@/lib/bootstrap";
 
 bootstrapClient();
@@ -10,6 +11,7 @@ bootstrapClient();
 export default function RootLayout() {
   return (
     <AppProvider>
+      <FriendsProvider>
       <CallProvider>
       <StatusBar style="light" />
       <Stack
@@ -29,6 +31,7 @@ export default function RootLayout() {
         <Stack.Screen name="group/[groupId]" options={{ title: "Group" }} />
       </Stack>
       </CallProvider>
+      </FriendsProvider>
     </AppProvider>
   );
 }

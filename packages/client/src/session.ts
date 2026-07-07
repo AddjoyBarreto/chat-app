@@ -38,7 +38,7 @@ export async function loadDevice(
   if (raw) {
     try {
       const state = JSON.parse(raw) as VaultDeviceState;
-      return VaultDevice.restore(session.username, session.deviceId, state);
+      return VaultDevice.restore(session.userId, session.deviceId, state);
     } catch {
       await storage.removeItem(deviceStorageKey(session.userId));
       throw new Error("Device keys corrupted. Please log out and register again.");

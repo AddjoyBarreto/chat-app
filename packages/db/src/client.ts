@@ -5,6 +5,10 @@ import * as schema from "./schema.js";
 export type Database = ReturnType<typeof createDb>;
 
 export function createDb(connectionString: string) {
-  const client = postgres(connectionString, { max: 10 });
+  const client = postgres(connectionString, {
+    max: 5,
+    idle_timeout: 20,
+    connect_timeout: 10,
+  });
   return drizzle(client, { schema });
 }

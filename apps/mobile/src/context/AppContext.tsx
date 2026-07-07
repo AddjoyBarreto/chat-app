@@ -49,7 +49,7 @@ interface AppContextValue {
     Set<(display: DisplayMessage, envelope: MessageEnvelope) => void>
   >;
   onServerEventHandlers: React.MutableRefObject<Set<(e: WsServerEvent) => void>>;
-  gatewaySend: (event: import("@vaultchat/protocol").WsClientEvent) => void;
+  gatewaySend: (event: import("@vaultchat/protocol").WsClientEvent) => boolean;
   groupKeysVersion: number;
   replenishKeysIfNeeded: () => Promise<void>;
 }
@@ -238,7 +238,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         ready,
         onMessageHandlers,
         onServerEventHandlers,
-        gatewaySend: (event) => gatewayRef.current?.send(event),
+        gatewaySend: (event) => gatewayRef.current?.send(event) ?? false,
         groupKeysVersion,
         replenishKeysIfNeeded,
       }}

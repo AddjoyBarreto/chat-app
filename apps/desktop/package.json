@@ -1,0 +1,39 @@
+{
+  "name": "@vaultchat/desktop",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev:web": "vite --port 3002",
+    "predev": "node ../../scripts/free-port.mjs 3002",
+    "dev": "tauri dev",
+    "build:web": "tsc && vite build",
+    "build": "tauri build --bundles app",
+    "build:dmg": "tauri build --bundles dmg",
+    "build:all": "tauri build",
+    "preview": "vite preview --port 3002",
+    "lint": "tsc --noEmit",
+    "icon": "tauri icon app-icon.png"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.5.0",
+    "@tauri-apps/plugin-http": "^2.4.0",
+    "@tauri-apps/plugin-shell": "^2.2.1",
+    "@vaultchat/chat-react": "workspace:*",
+    "@vaultchat/client": "workspace:*",
+    "@vaultchat/crypto": "workspace:*",
+    "@vaultchat/protocol": "workspace:*",
+    "buffer": "^6.0.3",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "react-virtuoso": "^4.12.5"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.5.0",
+    "@types/react": "~18.3.23",
+    "@types/react-dom": "~18.3.7",
+    "@vitejs/plugin-react": "^4.5.2",
+    "typescript": "^5.8.3",
+    "vite": "^6.3.5"
+  }
+}

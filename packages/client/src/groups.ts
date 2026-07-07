@@ -7,6 +7,7 @@ import type {
   SendGroupMessageRequest,
 } from "@vaultchat/protocol";
 import { getClientConfig } from "./config.js";
+import { clientFetch } from "./http.js";
 import { parseApiResponse } from "./errors.js";
 
 function apiUrl(path: string) {
@@ -24,7 +25,7 @@ export async function createGroup(
   token: string,
   body: CreateGroupRequest
 ): Promise<GroupInfo> {
-  const res = await fetch(apiUrl("/api/v1/groups"), {
+  const res = await clientFetch(apiUrl("/api/v1/groups"), {
     method: "POST",
     headers: authHeaders(token),
     body: JSON.stringify(body),
@@ -33,7 +34,7 @@ export async function createGroup(
 }
 
 export async function fetchGroups(token: string): Promise<GroupInfo[]> {
-  const res = await fetch(apiUrl("/api/v1/groups"), {
+  const res = await clientFetch(apiUrl("/api/v1/groups"), {
     headers: authHeaders(token),
   });
   const data = await parseApiResponse<{ groups: GroupInfo[] }>(res);
@@ -44,7 +45,7 @@ export async function fetchGroupMembers(
   token: string,
   groupId: string
 ): Promise<GroupMemberInfo[]> {
-  const res = await fetch(apiUrl(`/api/v1/groups/${groupId}/members`), {
+  const res = await clientFetch(apiUrl(`/api/v1/groups/${groupId}/members`), {
     headers: authHeaders(token),
   });
   const data = await parseApiResponse<{ members: GroupMemberInfo[] }>(res);
@@ -56,7 +57,7 @@ export async function sendGroupMessage(
   groupId: string,
   body: SendGroupMessageRequest
 ): Promise<{ messageId: string; createdAt: string }> {
-  const res = await fetch(apiUrl(`/api/v1/groups/${groupId}/messages`), {
+  const res = await clientFetch(apiUrl(`/api/v1/groups/${groupId}/messages`), {
     method: "POST",
     headers: authHeaders(token),
     body: JSON.stringify(body),
@@ -73,7 +74,7 @@ export async function fetchGroupMessages(
   if (opts?.cursor) params.set("cursor", opts.cursor);
   if (opts?.limit) params.set("limit", String(opts.limit));
   const q = params.toString();
-  const res = await fetch(apiUrl(`/api/v1/groups/${groupId}/messages${q ? `?${q}` : ""}`), {
+  const res = await clientFetch(apiUrl(`/api/v1/groups/${groupId}/messages${q ? `?${q}` : ""}`), {
     headers: authHeaders(token),
   });
   return parseApiResponse(res);

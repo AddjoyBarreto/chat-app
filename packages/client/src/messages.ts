@@ -64,13 +64,24 @@ export function formatMessageDate(iso: string): string {
 }
 
 export function previewText(msg: DisplayMessage): string {
-  if (msg.status === "decrypt_failed") return "🔒 Unable to decrypt";
+  if (msg.status === "decrypt_failed") return "Unable to decrypt";
   if (msg.content.type === "image") return "📷 Photo";
   if (msg.content.type === "video") return "🎬 Video";
   if (msg.content.type === "media") {
     return msg.content.media?.mime.startsWith("video/") ? "🎬 Video" : "📷 Photo";
   }
   return msg.content.text ?? "";
+}
+
+function pickRecipientCiphertext(
+  envelope: MessageEnvelope,
+  myDeviceId?: number
+): string {
+  if (myDeviceId !== undefined) {
+    const perDevice = envelope.recipientCiphertexts?.[String(myDeviceId)];
+    if (perDevice) return perDevice;
+  }
+  return envelope.ciphertext;
 }
 
 export async function decryptEnvelope(
@@ -105,34 +116,42 @@ export async function decryptEnvelope(
   // Own messages: decrypt sender copy for this device, or fall back to cache.
   if (envelope.senderId === myUserId) {
     const myDeviceId = options?.myDeviceId;
-    const copyRaw =
-      myDeviceId !== undefined
-        ? envelope.senderCiphertexts?.[String(myDeviceId)]
-        : undefined;
+    const copies = envelope.senderCiphertexts;
 
-    if (copyRaw && tryDecrypt) {
-      try {
-        const payload = parseEnvelopeCiphertext(copyRaw);
-        const plaintext = await device.decrypt(
-          myUserId,
-          envelope.senderDeviceId,
-          payload
-        );
-        const content = parseMessageContent(plaintext);
-        const display: DisplayMessage = {
-          id: envelope.id,
-          from: "me",
-          content,
-          time: envelope.createdAt,
-          date: formatMessageDate(envelope.createdAt),
-          status: "sent",
-        };
-        if (options) {
-          await cacheDecryptedMessage(options.storage, options.userId, display);
+    if (copies && tryDecrypt) {
+      const preferredKey =
+        myDeviceId !== undefined ? String(myDeviceId) : undefined;
+      const keysToTry = [
+        ...(preferredKey && copies[preferredKey] ? [preferredKey] : []),
+        ...Object.keys(copies).filter((k) => k !== preferredKey),
+      ];
+
+      for (const key of keysToTry) {
+        const copyRaw = copies[key];
+        if (!copyRaw) continue;
+        try {
+          const payload = parseEnvelopeCiphertext(copyRaw);
+          const plaintext = await device.decrypt(
+            myUserId,
+            envelope.senderDeviceId,
+            payload
+          );
+          const content = parseMessageContent(plaintext);
+          const display: DisplayMessage = {
+            id: envelope.id,
+            from: "me",
+            content,
+            time: envelope.createdAt,
+            date: formatMessageDate(envelope.createdAt),
+            status: "sent",
+          };
+          if (options) {
+            await cacheDecryptedMessage(options.storage, options.userId, display);
+          }
+          return display;
+        } catch {
+          // try next sender copy
         }
-        return display;
-      } catch {
-        // fall through to placeholder
       }
     }
     return undecryptable();
@@ -143,28 +162,45 @@ export async function decryptEnvelope(
   }
 
   try {
-    const payload = parseEnvelopeCiphertext(envelope.ciphertext);
-    const plaintext = await device.decrypt(
-      envelope.senderId,
-      envelope.senderDeviceId,
-      payload
-    );
-    const content = parseMessageContent(plaintext);
-
-    const display: DisplayMessage = {
-      id: envelope.id,
-      from,
-      content,
-      time: envelope.createdAt,
-      date: formatMessageDate(envelope.createdAt),
-      status: "delivered",
-    };
-
-    if (options) {
-      await cacheDecryptedMessage(options.storage, options.userId, display);
+    const ciphertextCandidates: string[] = [];
+    const preferred = pickRecipientCiphertext(envelope, options?.myDeviceId);
+    ciphertextCandidates.push(preferred);
+    if (envelope.recipientCiphertexts) {
+      for (const raw of Object.values(envelope.recipientCiphertexts)) {
+        if (raw !== preferred) ciphertextCandidates.push(raw);
+      }
     }
 
-    return display;
+    for (const raw of ciphertextCandidates) {
+      try {
+        const payload = parseEnvelopeCiphertext(raw);
+        const plaintext = await device.decrypt(
+          envelope.senderId,
+          envelope.senderDeviceId,
+          payload
+        );
+        const content = parseMessageContent(plaintext);
+
+        const display: DisplayMessage = {
+          id: envelope.id,
+          from,
+          content,
+          time: envelope.createdAt,
+          date: formatMessageDate(envelope.createdAt),
+          status: "delivered",
+        };
+
+        if (options) {
+          await cacheDecryptedMessage(options.storage, options.userId, display);
+        }
+
+        return display;
+      } catch {
+        // try next ciphertext variant
+      }
+    }
+
+    return undecryptable();
   } catch {
     return undecryptable();
   }
@@ -187,33 +223,43 @@ export function historyDecryptOptions(
 
 export interface OutgoingEncryptedMessage {
   recipientPayload: import("@vaultchat/crypto").EncryptedPayload;
+  recipientCiphertexts: Record<string, string>;
   senderCiphertexts: Record<string, string>;
 }
 
-/** Encrypt for recipient plus per-device copies for sender's other sessions. */
+/** Encrypt for every recipient device plus per-device copies for sender's other sessions. */
 export async function encryptOutgoingMessage(
   device: VaultDevice,
   senderUserId: string,
   recipientId: string,
   content: MessageContent,
-  recipientBundle: PreKeyBundleResponse,
+  recipientBundles: Array<{ deviceId: number; bundle: PreKeyBundleResponse }>,
   ownDeviceBundles: Array<{ deviceId: number; bundle: PreKeyBundleResponse }>
 ): Promise<OutgoingEncryptedMessage> {
   const plaintext = serializeMessageContent(content);
-  const recipientPayload = await device.encrypt(
-    recipientId,
-    recipientBundle.deviceId,
-    plaintext,
-    recipientBundle
-  );
+  const recipientCiphertexts: Record<string, string> = {};
+  let recipientPayload: import("@vaultchat/crypto").EncryptedPayload | undefined;
+
+  for (const { deviceId, bundle } of recipientBundles) {
+    const payload = await device.encrypt(recipientId, deviceId, plaintext, bundle);
+    recipientCiphertexts[String(deviceId)] = JSON.stringify(payload);
+    if (!recipientPayload || deviceId === 1) {
+      recipientPayload = payload;
+    }
+  }
+
+  if (!recipientPayload) {
+    throw new Error("Recipient has no registered devices");
+  }
 
   const senderCiphertexts: Record<string, string> = {};
+
   for (const { deviceId, bundle } of ownDeviceBundles) {
     const payload = await device.encrypt(senderUserId, deviceId, plaintext, bundle);
     senderCiphertexts[String(deviceId)] = JSON.stringify(payload);
   }
 
-  return { recipientPayload, senderCiphertexts };
+  return { recipientPayload, recipientCiphertexts, senderCiphertexts };
 }
 
 export async function encryptOutgoing(

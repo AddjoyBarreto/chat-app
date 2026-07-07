@@ -33,6 +33,12 @@ export async function parseApiResponse<T>(res: Response): Promise<T> {
 }
 
 export function friendlyError(err: unknown): string {
+  if (
+    err instanceof Error &&
+    (err.name === "DeviceIdentityMismatchError" || err.message === "DEVICE_IDENTITY_MISMATCH")
+  ) {
+    return "Encryption keys on this device are out of sync. Log out and sign in again to re-link this device.";
+  }
   if (err instanceof ClientApiError) {
     switch (err.code) {
       case "USERNAME_TAKEN":
@@ -92,6 +98,16 @@ export function friendlyError(err: unknown): string {
       default:
         return err.message;
     }
+  }
+  if (err instanceof TypeError) {
+    if (
+      err.message === "Load failed" ||
+      err.message === "Failed to fetch" ||
+      err.message.includes("NetworkError")
+    ) {
+      return "Cannot reach VaultChat server. Run pnpm dev:stack, then restart the desktop app.";
+    }
+    return err.message;
   }
   if (err instanceof Error) {
     if (err.message === "Invalid signature") {

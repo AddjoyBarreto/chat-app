@@ -6,7 +6,7 @@ import {
   encryptOutgoingMessage,
   fetchConversation,
   fetchOwnDeviceBundles,
-  fetchPreKeyBundle,
+  fetchRecipientDeviceBundles,
   formatMessageDate,
   friendlyError,
   historyDecryptOptions,
@@ -213,16 +213,17 @@ export default function ConversationScreen() {
     });
 
     try {
-      const [peerBundle, ownBundles] = await Promise.all([
-        fetchPreKeyBundle(peerId),
+      const [peerBundles, ownBundles] = await Promise.all([
+        fetchRecipientDeviceBundles(peerId),
         fetchOwnDeviceBundles(session.token, session.userId),
       ]);
-      const { recipientPayload, senderCiphertexts } = await encryptOutgoingMessage(
+      const { recipientPayload, recipientCiphertexts, senderCiphertexts } =
+        await encryptOutgoingMessage(
         device,
         session.userId,
         peerId,
         { type: "text", text },
-        peerBundle,
+        peerBundles,
         ownBundles
       );
       const result = await sendEncryptedMessage(
@@ -231,8 +232,9 @@ export default function ConversationScreen() {
         recipientPayload,
         "text",
         undefined,
-        peerBundle.deviceId,
-        senderCiphertexts
+        peerBundles[0]?.deviceId ?? 1,
+        senderCiphertexts,
+        recipientCiphertexts
       );
       await persistDevice(storage, device, session.userId);
 
@@ -272,16 +274,17 @@ export default function ConversationScreen() {
       const prepared = await pickAndPrepareMedia(session.token);
       if (!prepared) return;
 
-      const [peerBundle, ownBundles] = await Promise.all([
-        fetchPreKeyBundle(peerId),
+      const [peerBundles, ownBundles] = await Promise.all([
+        fetchRecipientDeviceBundles(peerId),
         fetchOwnDeviceBundles(session.token, session.userId),
       ]);
-      const { recipientPayload, senderCiphertexts } = await encryptOutgoingMessage(
+      const { recipientPayload, recipientCiphertexts, senderCiphertexts } =
+        await encryptOutgoingMessage(
         device,
         session.userId,
         peerId,
         prepared.content,
-        peerBundle,
+        peerBundles,
         ownBundles
       );
       const result = await sendEncryptedMessage(
@@ -290,8 +293,9 @@ export default function ConversationScreen() {
         recipientPayload,
         prepared.messageType,
         undefined,
-        peerBundle.deviceId,
-        senderCiphertexts
+        peerBundles[0]?.deviceId ?? 1,
+        senderCiphertexts,
+        recipientCiphertexts
       );
       await persistDevice(storage, device, session.userId);
 

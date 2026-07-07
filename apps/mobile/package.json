@@ -12,6 +12,7 @@
   "dependencies": {
     "@babel/runtime": "^7.27.4",
     "@expo/metro-runtime": "~4.0.1",
+    "@vaultchat/chat-react": "workspace:*",
     "@vaultchat/client": "workspace:*",
     "@vaultchat/crypto": "workspace:*",
     "@vaultchat/protocol": "workspace:*",

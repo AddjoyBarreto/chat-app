@@ -7,6 +7,7 @@ dist
 .next
 .turbo
 out
+apps/desktop/src-tauri/target
 
 # env
 .env

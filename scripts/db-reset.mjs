@@ -12,6 +12,8 @@ const url = process.env.DATABASE_URL ?? "postgres://vaultchat:vaultchat@localhos
 const TABLES = [
   "voice_presence",
   "channel_read_state",
+  "conversation_read_state",
+  "account_key_backups",
   "channel_messages",
   "channels",
   "channel_categories",

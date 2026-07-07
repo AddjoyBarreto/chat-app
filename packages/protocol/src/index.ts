@@ -132,6 +132,8 @@ export interface SendMessageRequest {
   attachmentMeta?: string;
   /** Per-device ciphertext so sender can read on all logged-in devices (E2EE sync). */
   senderCiphertexts?: Record<string, string>;
+  /** Per-device ciphertext so recipient can read on all logged-in devices. */
+  recipientCiphertexts?: Record<string, string>;
 }
 
 export interface MessageEnvelope {
@@ -143,6 +145,7 @@ export interface MessageEnvelope {
   messageType: MessageType;
   attachmentMeta?: string;
   senderCiphertexts?: Record<string, string>;
+  recipientCiphertexts?: Record<string, string>;
   createdAt: string;
 }
 
@@ -153,6 +156,19 @@ export interface UserDeviceInfo {
 
 export interface ListDevicesResponse {
   devices: UserDeviceInfo[];
+}
+
+/** Public device list for multi-device E2EE fan-out (device ids only). */
+export interface PublicUserDevicesResponse {
+  devices: UserDeviceInfo[];
+}
+
+export interface AccountKeyBackupResponse {
+  backup: string | null;
+}
+
+export interface PutAccountKeyBackupRequest {
+  backup: string;
 }
 
 export interface SendMessageResponse {
@@ -186,6 +202,14 @@ export interface ConversationPreview {
 
 export interface ConversationsResponse {
   conversations: ConversationPreview[];
+}
+
+export interface DmReadStateResponse {
+  readState: Record<string, string>;
+}
+
+export interface UpdateDmReadStateRequest {
+  lastReadAt: string;
 }
 
 /** JSON inside Signal ciphertext — supports text and inline images (dev/MVP) */

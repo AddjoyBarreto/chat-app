@@ -15,6 +15,7 @@ import type {
   VerifyEmailResponse,
 } from "@vaultchat/protocol";
 import { getClientConfig } from "./config.js";
+import { clientFetch } from "./http.js";
 import { parseApiResponse } from "./errors.js";
 
 function authHeaders(token: string) {
@@ -38,7 +39,7 @@ export async function registerOnServer(body: {
   registrationId: number;
   deviceName?: string;
 }): Promise<RegisterUserResponse> {
-  const res = await fetch(apiUrl("/api/v1/users/register"), {
+  const res = await clientFetch(apiUrl("/api/v1/users/register"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -47,7 +48,7 @@ export async function registerOnServer(body: {
 }
 
 export async function loginOnServer(body: LoginUserRequest): Promise<LoginUserResponse> {
-  const res = await fetch(apiUrl("/api/v1/users/login"), {
+  const res = await clientFetch(apiUrl("/api/v1/users/login"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -56,14 +57,14 @@ export async function loginOnServer(body: LoginUserRequest): Promise<LoginUserRe
 }
 
 export async function fetchMe(token: string): Promise<MeResponse> {
-  const res = await fetch(apiUrl("/api/v1/users/me"), {
+  const res = await clientFetch(apiUrl("/api/v1/users/me"), {
     headers: authHeaders(token),
   });
   return parseApiResponse(res);
 }
 
 export async function verifyEmailOnServer(token: string): Promise<VerifyEmailResponse> {
-  const res = await fetch(apiUrl("/api/v1/auth/verify-email"), {
+  const res = await clientFetch(apiUrl("/api/v1/auth/verify-email"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ token }),
@@ -72,7 +73,7 @@ export async function verifyEmailOnServer(token: string): Promise<VerifyEmailRes
 }
 
 export async function resendVerificationEmail(token: string): Promise<ResendVerificationResponse> {
-  const res = await fetch(apiUrl("/api/v1/auth/resend-verification"), {
+  const res = await clientFetch(apiUrl("/api/v1/auth/resend-verification"), {
     method: "POST",
     headers: authHeaders(token),
   });
@@ -83,7 +84,7 @@ export async function uploadPreKeys(
   token: string,
   body: import("@vaultchat/protocol").UploadPreKeysRequest
 ): Promise<void> {
-  const res = await fetch(apiUrl("/api/v1/keys"), {
+  const res = await clientFetch(apiUrl("/api/v1/keys"), {
     method: "POST",
     headers: authHeaders(token),
     body: JSON.stringify(body),
@@ -92,7 +93,7 @@ export async function uploadPreKeys(
 }
 
 export async function lookupUser(username: string): Promise<UserProfile> {
-  const res = await fetch(apiUrl(`/api/v1/users/${encodeURIComponent(username)}`));
+  const res = await clientFetch(apiUrl(`/api/v1/users/${encodeURIComponent(username)}`));
   return parseApiResponse(res);
 }
 
@@ -103,7 +104,7 @@ export async function searchUsers(
   signal?: AbortSignal
 ): Promise<import("@vaultchat/protocol").UserSearchResponse> {
   const params = new URLSearchParams({ q: query, limit: String(limit) });
-  const res = await fetch(apiUrl(`/api/v1/users/search?${params}`), {
+  const res = await clientFetch(apiUrl(`/api/v1/users/search?${params}`), {
     headers: authHeaders(token),
     signal,
   });
@@ -115,17 +116,39 @@ export async function fetchPreKeyBundle(
   deviceId = 1
 ): Promise<PreKeyBundleResponse> {
   const params = deviceId !== 1 ? `?deviceId=${deviceId}` : "";
-  const res = await fetch(apiUrl(`/api/v1/keys/${userId}${params}`));
+  const res = await clientFetch(apiUrl(`/api/v1/keys/${userId}${params}`));
+  return parseApiResponse(res);
+}
+
+export async function fetchUserDevices(
+  userId: string
+): Promise<import("@vaultchat/protocol").PublicUserDevicesResponse> {
+  const res = await clientFetch(apiUrl(`/api/v1/keys/${userId}/devices`));
   return parseApiResponse(res);
 }
 
 export async function fetchMyDevices(
   token: string
 ): Promise<import("@vaultchat/protocol").ListDevicesResponse> {
-  const res = await fetch(apiUrl("/api/v1/devices"), {
+  const res = await clientFetch(apiUrl("/api/v1/devices"), {
     headers: authHeaders(token),
   });
   return parseApiResponse(res);
+}
+
+export async function fetchRecipientDeviceBundles(
+  recipientId: string
+): Promise<Array<{ deviceId: number; bundle: PreKeyBundleResponse }>> {
+  const { devices } = await fetchUserDevices(recipientId);
+  if (devices.length === 0) {
+    return [{ deviceId: 1, bundle: await fetchPreKeyBundle(recipientId, 1) }];
+  }
+  return Promise.all(
+    devices.map(async (d) => ({
+      deviceId: d.deviceId,
+      bundle: await fetchPreKeyBundle(recipientId, d.deviceId),
+    }))
+  );
 }
 
 export async function fetchOwnDeviceBundles(
@@ -142,7 +165,7 @@ export async function fetchOwnDeviceBundles(
 }
 
 export async function fetchOwnDeviceKeys(token: string): Promise<import("@vaultchat/protocol").OwnDeviceKeysResponse> {
-  const res = await fetch(apiUrl("/api/v1/keys/me"), {
+  const res = await clientFetch(apiUrl("/api/v1/keys/me"), {
     headers: authHeaders(token),
   });
   return parseApiResponse(res);
@@ -155,9 +178,10 @@ export async function sendEncryptedMessage(
   messageType: import("@vaultchat/protocol").MessageType = "text",
   attachmentMeta?: string,
   recipientDeviceId = 1,
-  senderCiphertexts?: Record<string, string>
+  senderCiphertexts?: Record<string, string>,
+  recipientCiphertexts?: Record<string, string>
 ): Promise<SendMessageResponse> {
-  const res = await fetch(apiUrl("/api/v1/messages"), {
+  const res = await clientFetch(apiUrl("/api/v1/messages"), {
     method: "POST",
     headers: authHeaders(token),
     body: JSON.stringify({
@@ -167,21 +191,65 @@ export async function sendEncryptedMessage(
       messageType,
       attachmentMeta,
       senderCiphertexts,
+      recipientCiphertexts,
     }),
   });
   return parseApiResponse(res);
 }
 
+export async function fetchAccountBackup(
+  token: string
+): Promise<import("@vaultchat/protocol").AccountKeyBackupResponse> {
+  const res = await clientFetch(apiUrl("/api/v1/keys/backup"), {
+    headers: authHeaders(token),
+  });
+  return parseApiResponse(res);
+}
+
+export async function uploadAccountBackup(
+  token: string,
+  backup: string
+): Promise<{ ok: true }> {
+  const res = await clientFetch(apiUrl("/api/v1/keys/backup"), {
+    method: "PUT",
+    headers: authHeaders(token),
+    body: JSON.stringify({ backup }),
+  });
+  return parseApiResponse(res);
+}
+
 export async function fetchInbox(token: string): Promise<InboxResponse> {
-  const res = await fetch(apiUrl("/api/v1/messages"), {
+  const res = await clientFetch(apiUrl("/api/v1/messages"), {
     headers: authHeaders(token),
   });
   return parseApiResponse(res);
 }
 
 export async function fetchConversations(token: string): Promise<import("@vaultchat/protocol").ConversationsResponse> {
-  const res = await fetch(apiUrl("/api/v1/conversations"), {
+  const res = await clientFetch(apiUrl("/api/v1/conversations"), {
     headers: authHeaders(token),
+  });
+  return parseApiResponse(res);
+}
+
+export async function fetchDmReadState(
+  token: string
+): Promise<import("@vaultchat/protocol").DmReadStateResponse> {
+  const res = await clientFetch(apiUrl("/api/v1/conversations/read-state"), {
+    headers: authHeaders(token),
+  });
+  return parseApiResponse(res);
+}
+
+export async function updateDmReadState(
+  token: string,
+  peerId: string,
+  lastReadAt: string
+): Promise<{ ok: true }> {
+  const res = await clientFetch(apiUrl(`/api/v1/conversations/read-state/${peerId}`), {
+    method: "PUT",
+    headers: { ...authHeaders(token), "Content-Type": "application/json" },
+    body: JSON.stringify({ lastReadAt }),
   });
   return parseApiResponse(res);
 }
@@ -195,7 +263,7 @@ export async function fetchConversation(
   if (opts?.cursor) params.set("cursor", opts.cursor);
   if (opts?.limit) params.set("limit", String(opts.limit));
   const q = params.toString();
-  const res = await fetch(apiUrl(`/api/v1/conversations/${peerId}${q ? `?${q}` : ""}`), {
+  const res = await clientFetch(apiUrl(`/api/v1/conversations/${peerId}${q ? `?${q}` : ""}`), {
     headers: authHeaders(token),
   });
   return parseApiResponse(res);
@@ -206,7 +274,7 @@ export async function registerPushToken(
   pushToken: string,
   platform: "ios" | "android" | "web"
 ): Promise<void> {
-  const res = await fetch(apiUrl("/api/v1/devices/push-token"), {
+  const res = await clientFetch(apiUrl("/api/v1/devices/push-token"), {
     method: "POST",
     headers: authHeaders(token),
     body: JSON.stringify({ pushToken, platform }),
@@ -219,7 +287,7 @@ export async function requestMediaUploadUrl(
   mimeType: string,
   sizeBytes: number
 ): Promise<{ mediaId: string; uploadUrl: string; expiresAt: string }> {
-  const res = await fetch(apiUrl("/api/v1/media/upload-url"), {
+  const res = await clientFetch(apiUrl("/api/v1/media/upload-url"), {
     method: "POST",
     headers: authHeaders(token),
     body: JSON.stringify({ mimeType, sizeBytes }),
@@ -231,7 +299,7 @@ export async function requestMediaDownloadUrl(
   token: string,
   mediaId: string
 ): Promise<{ downloadUrl: string; expiresAt: string }> {
-  const res = await fetch(apiUrl(`/api/v1/media/${mediaId}/download-url`), {
+  const res = await clientFetch(apiUrl(`/api/v1/media/${mediaId}/download-url`), {
     headers: authHeaders(token),
   });
   return parseApiResponse(res);

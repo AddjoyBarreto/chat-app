@@ -109,6 +109,7 @@ export const messages = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     ciphertext: text("ciphertext").notNull(),
+    recipientCiphertexts: text("recipient_ciphertexts"),
     senderCiphertexts: text("sender_ciphertexts"),
     messageType: text("message_type").notNull().default("text"),
     attachmentMeta: text("attachment_meta"),
@@ -139,6 +140,30 @@ export const conversations = pgTable(
   (table) => [
     uniqueIndex("conversations_user_peer_idx").on(table.userId, table.peerId),
     index("conversations_user_last_at_idx").on(table.userId, table.lastMessageAt),
+  ]
+);
+
+export const accountKeyBackups = pgTable("account_key_backups", {
+  userId: uuid("user_id")
+    .primaryKey()
+    .references(() => users.id, { onDelete: "cascade" }),
+  encryptedBlob: text("encrypted_blob").notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const conversationReadState = pgTable(
+  "conversation_read_state",
+  {
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    peerId: uuid("peer_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    lastReadAt: timestamp("last_read_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("conversation_read_state_user_peer_idx").on(table.userId, table.peerId),
   ]
 );
 

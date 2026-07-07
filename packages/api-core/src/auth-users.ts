@@ -247,15 +247,22 @@ export async function loginUser(
       deviceId = created.deviceId;
       preKeysRequired = true;
     } else if (existing.identityKeyPublic !== body.identityKeyPublic) {
-      await ctx.db
-        .update(devices)
-        .set({
-          identityKeyPublic: body.identityKeyPublic,
-          registrationId: body.registrationId,
-        })
-        .where(eq(devices.id, existing.id));
-      await ctx.db.delete(signedPreKeys).where(eq(signedPreKeys.deviceRef, existing.id));
-      await ctx.db.delete(oneTimePreKeys).where(eq(oneTimePreKeys.deviceRef, existing.id));
+      // Another app install — register a linked device instead of overwriting existing keys.
+      const [maxRow] = await ctx.db
+        .select({ deviceId: devices.deviceId })
+        .from(devices)
+        .where(eq(devices.userId, user.id))
+        .orderBy(desc(devices.deviceId))
+        .limit(1);
+
+      const nextDeviceId = maxRow ? maxRow.deviceId + 1 : 1;
+      const created = await registerDeviceForUser(ctx, user.id, {
+        registrationId: body.registrationId,
+        identityKeyPublic: body.identityKeyPublic,
+        deviceName: body.deviceName ?? "Device",
+        deviceId: nextDeviceId,
+      });
+      deviceId = created.deviceId;
       preKeysRequired = true;
     } else {
       const bundleValid = await isDeviceBundleValid(ctx, user.id, deviceId);

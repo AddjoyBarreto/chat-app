@@ -8,6 +8,7 @@ import {
 import type { MessageContent } from "@vaultchat/protocol";
 import { requestMediaDownloadUrl, requestMediaUploadUrl } from "./api.js";
 import { getClientConfig } from "./config.js";
+import { clientFetch } from "./http.js";
 
 /** Presigned R2 URLs must not get extra headers; local API routes need JWT. */
 function authHeadersForMediaUrl(token: string, url: string): Record<string, string> {
@@ -40,7 +41,7 @@ export async function uploadEncryptedMedia(
     ciphertextBytes.byteLength
   );
 
-  const uploadRes = await fetch(uploadUrl, {
+  const uploadRes = await clientFetch(uploadUrl, {
     method: "PUT",
     headers: {
       "Content-Type": "application/octet-stream",
@@ -71,7 +72,7 @@ export async function downloadEncryptedMedia(
   media: NonNullable<MessageContent["media"]>
 ): Promise<ArrayBuffer> {
   const { downloadUrl } = await requestMediaDownloadUrl(token, media.mediaId);
-  const res = await fetch(downloadUrl, {
+  const res = await clientFetch(downloadUrl, {
     headers: authHeadersForMediaUrl(token, downloadUrl),
   });
   if (!res.ok) throw new Error("Media download failed");

@@ -35,11 +35,13 @@ export function useGateway(
     pingTimer.current = null;
   }, []);
 
-  const send = useCallback((event: WsClientEvent) => {
+  const send = useCallback((event: WsClientEvent): boolean => {
     const ws = wsRef.current;
     if (ws?.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify(event));
+      return true;
     }
+    return false;
   }, []);
 
   const scheduleReconnect = useCallback(() => {

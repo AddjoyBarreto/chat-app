@@ -1,6 +1,8 @@
 export interface ClientConfig {
   apiBaseUrl: string;
   wsUrl: string;
+  /** Override fetch (e.g. Tauri plugin-http bypasses CORS in native WebView). */
+  fetch?: typeof fetch;
 }
 
 let config: ClientConfig = {

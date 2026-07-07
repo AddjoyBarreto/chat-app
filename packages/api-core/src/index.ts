@@ -8,8 +8,10 @@ export { createRedis, publishMessage, MESSAGE_CHANNEL_PREFIX } from "./redis.js"
 export type { ApiContext } from "./context.js";
 export { registerUser, loginUser, verifyEmail, resendVerificationEmail, getMe, requireVerifiedEmail } from "./auth-users.js";
 export { setEmailConfig, getEmailConfig } from "./email.js";
-export { registerDeviceForUser, getUserByUsername, searchUsers, uploadPreKeys, getPreKeyBundle, getOwnDeviceKeys, isDeviceBundleValid, listUserDevices } from "./users.js";
+export { registerDeviceForUser, getUserByUsername, searchUsers, uploadPreKeys, getPreKeyBundle, getOwnDeviceKeys, isDeviceBundleValid, listUserDevices, listPublicUserDevices } from "./users.js";
+export { getAccountKeyBackup, putAccountKeyBackup } from "./key-backup.js";
 export { sendMessage, getInbox, getConversation, listConversations } from "./messages.js";
+export { getDmReadState, setDmReadState } from "./read-state.js";
 export {
   areFriends,
   assertCanDm,

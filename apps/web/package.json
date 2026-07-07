@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@vaultchat/api-core": "workspace:*",
+    "@vaultchat/chat-react": "workspace:*",
     "@vaultchat/client": "workspace:*",
     "@vaultchat/crypto": "workspace:*",
     "@vaultchat/protocol": "workspace:*",

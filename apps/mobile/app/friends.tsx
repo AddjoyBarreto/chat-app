@@ -1,15 +1,7 @@
-import {
-  acceptFriendRequest,
-  fetchFriendRequests,
-  fetchFriends,
-  friendlyError,
-  rejectFriendRequest,
-  searchUsers,
-  sendFriendRequest,
-} from "@vaultchat/client";
+import { searchUsers } from "@vaultchat/client";
 import type { UserSearchResult } from "@vaultchat/protocol";
 import { useRouter } from "expo-router";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
@@ -20,39 +12,17 @@ import {
   View,
 } from "react-native";
 import { useApp } from "@/context/AppContext";
+import { useFriendsContext } from "@/context/FriendsContext";
 import { theme } from "@/theme";
 
 export default function FriendsScreen() {
   const { session } = useApp();
+  const friends = useFriendsContext();
   const router = useRouter();
-  const [friends, setFriends] = useState<Awaited<ReturnType<typeof fetchFriends>>["friends"]>([]);
-  const [incoming, setIncoming] = useState<
-    Awaited<ReturnType<typeof fetchFriendRequests>>["incoming"]
-  >([]);
   const [username, setUsername] = useState("");
-  const [loading, setLoading] = useState(true);
   const [searching, setSearching] = useState(false);
   const [searchResults, setSearchResults] = useState<UserSearchResult[]>([]);
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const refresh = useCallback(async () => {
-    if (!session) return;
-    setLoading(true);
-    try {
-      const [f, r] = await Promise.all([
-        fetchFriends(session.token),
-        fetchFriendRequests(session.token),
-      ]);
-      setFriends(f.friends);
-      setIncoming(r.incoming);
-    } finally {
-      setLoading(false);
-    }
-  }, [session]);
-
-  useEffect(() => {
-    void refresh();
-  }, [refresh]);
 
   useEffect(() => {
     if (!session) return;
@@ -104,13 +74,13 @@ export default function FriendsScreen() {
               style={styles.searchRow}
               disabled={user.relationship !== "none"}
               onPress={() =>
-                void sendFriendRequest(session.token, user.username)
+                void friends
+                  .addFriend(user.username)
                   .then(() => {
                     setUsername("");
                     setSearchResults([]);
-                    return refresh();
                   })
-                  .catch((e) => alert(friendlyError(e)))
+                  .catch((e) => alert(String(e)))
               }
             >
               <Text style={styles.name}>@{user.username}</Text>
@@ -126,13 +96,13 @@ export default function FriendsScreen() {
         </View>
       )}
 
-      {loading ? (
+      {friends.loading ? (
         <ActivityIndicator color={theme.accent} style={{ marginTop: 24 }} />
       ) : (
         <FlatList
           data={[
-            ...incoming.map((r) => ({ type: "request" as const, item: r })),
-            ...friends.map((f) => ({ type: "friend" as const, item: f })),
+            ...friends.incoming.map((r) => ({ type: "request" as const, item: r })),
+            ...friends.friends.map((f) => ({ type: "friend" as const, item: f })),
           ]}
           keyExtractor={(row) =>
             row.type === "request" ? `req-${row.item.id}` : `friend-${row.item.userId}`
@@ -142,18 +112,10 @@ export default function FriendsScreen() {
               <View style={styles.card}>
                 <Text style={styles.name}>@{row.item.senderUsername}</Text>
                 <View style={styles.actions}>
-                  <TouchableOpacity
-                    onPress={() =>
-                      void acceptFriendRequest(session.token, row.item.id).then(refresh)
-                    }
-                  >
+                  <TouchableOpacity onPress={() => void friends.accept(row.item.id)}>
                     <Text style={styles.link}>Accept</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity
-                    onPress={() =>
-                      void rejectFriendRequest(session.token, row.item.id).then(refresh)
-                    }
-                  >
+                  <TouchableOpacity onPress={() => void friends.reject(row.item.id)}>
                     <Text style={styles.muted}>Decline</Text>
                   </TouchableOpacity>
                 </View>
@@ -181,7 +143,6 @@ export default function FriendsScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: theme.bgApp, padding: 16 },
   title: { color: theme.textPrimary, fontSize: 22, fontWeight: "600", marginBottom: 16 },
-  row: { flexDirection: "row", gap: 8, marginBottom: 12 },
   inputFull: {
     backgroundColor: theme.bgInput,
     color: theme.textPrimary,
@@ -200,15 +161,6 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     marginBottom: 6,
   },
-  input: {
-    flex: 1,
-    backgroundColor: theme.bgInput,
-    color: theme.textPrimary,
-    borderRadius: 8,
-    padding: 12,
-  },
-  btn: { backgroundColor: theme.accent, borderRadius: 8, paddingHorizontal: 16, justifyContent: "center" },
-  btnText: { color: theme.bgApp, fontWeight: "600" },
   card: {
     backgroundColor: theme.bgPanel,
     padding: 14,

@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { ThemeInit } from "@/components/settings/ThemeInit";
 
 export const metadata: Metadata = {
   title: "VaultChat",
@@ -13,7 +14,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body suppressHydrationWarning>{children}</body>
+      <body suppressHydrationWarning>
+        <ThemeInit />
+        {children}
+      </body>
     </html>
   );
 }

@@ -1,5 +1,6 @@
-import { CallSession, type CallPhase } from "@vaultchat/client";
-import type { CallType, WsServerEvent } from "@vaultchat/protocol";
+import { useCallSession } from "@vaultchat/chat-react";
+import type { CallPhase } from "@vaultchat/client";
+import type { CallType } from "@vaultchat/protocol";
 import { router } from "expo-router";
 import * as Notifications from "expo-notifications";
 import {
@@ -7,7 +8,6 @@ import {
   useCallback,
   useContext,
   useEffect,
-  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -16,23 +16,19 @@ import { useApp } from "./AppContext";
 import { callsSupported, getWebRtcAdapter } from "@/lib/webrtc";
 import { theme } from "@/theme";
 
-interface IncomingCall {
-  callId: string;
-  callerId: string;
-  callerUsername: string;
-  callType: CallType;
-}
-
 interface CallContextValue {
   callPhase: CallPhase;
   callType: CallType;
   callActive: boolean;
   canCall: boolean;
   activePeerUsername: string | null;
+  localStream: MediaStream | null;
+  remoteStream: MediaStream | null;
   startOutgoing: (peerId: string, peerUsername: string, type: CallType) => Promise<void>;
   acceptIncoming: () => Promise<void>;
   rejectIncoming: () => void;
   endCall: () => void;
+  toggleMute: () => boolean;
 }
 
 const CallContext = createContext<CallContextValue | null>(null);
@@ -49,108 +45,73 @@ function isIncomingCallData(
   );
 }
 
+function getRtcView(): React.ComponentType<{
+  streamURL: string;
+  style?: object;
+  objectFit?: "cover" | "contain";
+  mirror?: boolean;
+}> | null {
+  if (!callsSupported()) return null;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { RTCView } = require("react-native-webrtc") as {
+      RTCView: React.ComponentType<{
+        streamURL: string;
+        style?: object;
+        objectFit?: "cover" | "contain";
+        mirror?: boolean;
+      }>;
+    };
+    return RTCView;
+  } catch {
+    return null;
+  }
+}
+
 export function CallProvider({ children }: { children: ReactNode }) {
-  const {
-    session,
-    connectionState,
-    conversations,
-    gatewaySend,
-    onServerEventHandlers,
-  } = useApp();
+  const { session, connectionState, conversations, gatewaySend, onServerEventHandlers } =
+    useApp();
 
-  const callSessionRef = useRef<CallSession | null>(null);
-  const conversationsRef = useRef(conversations);
-  conversationsRef.current = conversations;
-
-  const [callPhase, setCallPhase] = useState<CallPhase>("idle");
-  const [callType, setCallType] = useState<CallType>("voice");
-  const [activePeerUsername, setActivePeerUsername] = useState<string | null>(null);
-  const [incomingCall, setIncomingCall] = useState<IncomingCall | null>(null);
+  const [muted, setMuted] = useState(false);
   const [webrtcAvailable] = useState(() => callsSupported());
+  const RTCView = getRtcView();
 
-  const resolveUsername = useCallback((userId: string) => {
-    const conv = conversationsRef.current.find((c) => c.peerId === userId);
-    return conv?.peerUsername ?? userId.slice(0, 8);
-  }, []);
+  const resolveUsername = useCallback(
+    (userId: string) => {
+      const conv = conversations.find((c) => c.peerId === userId);
+      return conv?.peerUsername ?? userId.slice(0, 8);
+    },
+    [conversations]
+  );
+
+  const calls = useCallSession({
+    session,
+    send: gatewaySend,
+    isConnected: connectionState === "connected",
+    resolveUsername,
+    onToast: (msg) => Alert.alert("Call", msg),
+    webrtc: webrtcAvailable ? getWebRtcAdapter() : undefined,
+  });
+
+  useEffect(() => {
+    const handler = calls.handleServerEvent;
+    onServerEventHandlers.current.add(handler);
+    return () => {
+      onServerEventHandlers.current.delete(handler);
+    };
+  }, [calls.handleServerEvent, onServerEventHandlers]);
 
   const injectIncomingCall = useCallback(
     (callId: string, callerId: string, callType: CallType) => {
-      void callSessionRef.current?.handleServerEvent({
-        type: "call_incoming",
-        callId,
-        callerId,
-        callType,
-      });
+      calls.handleServerEvent({ type: "call_incoming", callId, callerId, callType });
     },
-    []
+    [calls]
   );
-
-  useEffect(() => {
-    if (!session || !webrtcAvailable) {
-      callSessionRef.current = null;
-      return;
-    }
-
-    const callSession = new CallSession({
-      token: session.token,
-      selfUserId: session.userId,
-      sendWs: gatewaySend,
-      webrtc: getWebRtcAdapter(),
-      onPhaseChange: (phase, callId) => {
-        setCallPhase(phase);
-        const cs = callSessionRef.current;
-        if (phase === "incoming" && cs && callId) {
-          const callerId = cs.getPeerId();
-          if (callerId) {
-            setIncomingCall({
-              callId,
-              callerId,
-              callerUsername: resolveUsername(callerId),
-              callType: cs.getCallType(),
-            });
-          }
-        }
-        if (phase === "idle" || phase === "ended") {
-          setIncomingCall(null);
-          if (phase === "idle") setActivePeerUsername(null);
-        }
-        if (
-          (phase === "outgoing" || phase === "connecting" || phase === "active") &&
-          cs
-        ) {
-          const peerId = cs.getPeerId();
-          if (peerId) {
-            setActivePeerUsername(resolveUsername(peerId));
-            setCallType(cs.getCallType());
-          }
-        }
-      },
-      onRemoteStream: () => {},
-      onError: (msg) => Alert.alert("Call", msg),
-    });
-    callSessionRef.current = callSession;
-
-    return () => {
-      void callSession.endCall();
-      callSessionRef.current = null;
-    };
-  }, [session?.token, session?.userId, gatewaySend, resolveUsername]);
-
-  const handleServerEvent = useCallback((event: WsServerEvent) => {
-    void callSessionRef.current?.handleServerEvent(event);
-  }, []);
-
-  useEffect(() => {
-    onServerEventHandlers.current.add(handleServerEvent);
-    return () => {
-      onServerEventHandlers.current.delete(handleServerEvent);
-    };
-  }, [handleServerEvent, onServerEventHandlers]);
 
   useEffect(() => {
     const received = Notifications.addNotificationReceivedListener((notification) => {
       const data = notification.request.content.data;
-      if (!isIncomingCallData(data) || callPhase !== "idle") return;
+      if (!isIncomingCallData(data)) return;
       injectIncomingCall(data.callId, data.callerId, data.callType);
     });
 
@@ -164,13 +125,11 @@ export function CallProvider({ children }: { children: ReactNode }) {
       received.remove();
       response.remove();
     };
-  }, [callPhase, injectIncomingCall]);
+  }, [injectIncomingCall]);
 
-  const callActive = callPhase !== "idle" && callPhase !== "ended";
-  const canCall = webrtcAvailable && connectionState === "connected" && !callActive;
+  const activePeerUsername = calls.callPeer?.username ?? null;
 
   async function startOutgoing(peerId: string, peerUsername: string, type: CallType) {
-    if (!callSessionRef.current || callPhase !== "idle") return;
     if (!webrtcAvailable) {
       Alert.alert(
         "Calls require dev build",
@@ -178,25 +137,18 @@ export function CallProvider({ children }: { children: ReactNode }) {
       );
       return;
     }
-    setActivePeerUsername(peerUsername);
-    setCallType(type);
     try {
-      await callSessionRef.current.startOutgoing(peerId, type);
+      await calls.startOutgoing(peerId, type);
     } catch (e) {
       Alert.alert("Call failed", String(e));
     }
   }
 
   async function acceptIncoming() {
-    if (!incomingCall || !callSessionRef.current) return;
-    const call = incomingCall;
-    setIncomingCall(null);
+    if (!calls.incomingCall) return;
+    const call = calls.incomingCall;
     try {
-      await callSessionRef.current.acceptIncoming(
-        call.callId,
-        call.callerId,
-        call.callType
-      );
+      await calls.acceptIncoming();
       router.push({
         pathname: "/conversation/[peerId]",
         params: { peerId: call.callerId, peerUsername: call.callerUsername },
@@ -206,42 +158,53 @@ export function CallProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  function rejectIncoming() {
-    if (!incomingCall || !callSessionRef.current) return;
-    callSessionRef.current.rejectIncoming(incomingCall.callId);
-    setIncomingCall(null);
+  function toggleMute() {
+    const enabled = calls.toggleMute();
+    setMuted(!enabled);
+    return enabled;
   }
 
-  function endCall() {
-    void callSessionRef.current?.endCall();
-  }
+  const remoteUrl =
+    calls.remoteStream &&
+    typeof (calls.remoteStream as MediaStream & { toURL?: () => string }).toURL === "function"
+      ? (calls.remoteStream as MediaStream & { toURL: () => string }).toURL()
+      : null;
+
+  const localUrl =
+    calls.localStream &&
+    typeof (calls.localStream as MediaStream & { toURL?: () => string }).toURL === "function"
+      ? (calls.localStream as MediaStream & { toURL: () => string }).toURL()
+      : null;
 
   return (
     <CallContext.Provider
       value={{
-        callPhase,
-        callType,
-        callActive,
-        canCall,
+        callPhase: calls.phase,
+        callType: calls.callType,
+        callActive: calls.inCall,
+        canCall: webrtcAvailable && calls.canCall,
         activePeerUsername,
+        localStream: calls.localStream,
+        remoteStream: calls.remoteStream,
         startOutgoing,
         acceptIncoming,
-        rejectIncoming,
-        endCall,
+        rejectIncoming: calls.rejectIncoming,
+        endCall: calls.endCall,
+        toggleMute,
       }}
     >
       {children}
 
-      <Modal visible={!!incomingCall} transparent animationType="fade">
+      <Modal visible={!!calls.incomingCall} transparent animationType="fade">
         <View style={styles.modalOverlay}>
           <View style={styles.modal}>
             <Text style={styles.modalTitle}>Incoming call</Text>
             <Text style={styles.modalText}>
-              @{incomingCall?.callerUsername} —{" "}
-              {incomingCall?.callType === "video" ? "video" : "voice"}
+              @{calls.incomingCall?.callerUsername} —{" "}
+              {calls.incomingCall?.callType === "video" ? "video" : "voice"}
             </Text>
             <View style={styles.callActions}>
-              <TouchableOpacity style={styles.callReject} onPress={rejectIncoming}>
+              <TouchableOpacity style={styles.callReject} onPress={calls.rejectIncoming}>
                 <Text style={styles.callBtnText}>✕</Text>
               </TouchableOpacity>
               <TouchableOpacity
@@ -249,7 +212,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
                 onPress={() => void acceptIncoming()}
               >
                 <Text style={styles.callBtnText}>
-                  {incomingCall?.callType === "video" ? "📹" : "📞"}
+                  {calls.incomingCall?.callType === "video" ? "📹" : "📞"}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -258,22 +221,53 @@ export function CallProvider({ children }: { children: ReactNode }) {
       </Modal>
 
       <Modal
-        visible={callActive && callPhase !== "incoming"}
+        visible={calls.inCall && calls.phase !== "incoming"}
         transparent
         animationType="slide"
       >
         <View style={styles.callOverlay}>
-          <Text style={styles.callOverlayTitle}>@{activePeerUsername}</Text>
-          <Text style={styles.callOverlayStatus}>
-            {callPhase === "outgoing"
-              ? "Calling…"
-              : callPhase === "connecting"
-                ? "Connecting…"
-                : "Connected"}
-          </Text>
-          <TouchableOpacity style={styles.callRejectLarge} onPress={endCall}>
-            <Text style={styles.callBtnText}>✕</Text>
-          </TouchableOpacity>
+          {RTCView && remoteUrl && calls.callType === "video" ? (
+            <RTCView streamURL={remoteUrl} style={styles.remoteVideo} objectFit="cover" />
+          ) : null}
+
+          {RTCView && remoteUrl && calls.callType !== "video" ? (
+            <RTCView streamURL={remoteUrl} style={styles.hiddenRtc} objectFit="cover" />
+          ) : null}
+
+          {calls.callType === "video" && RTCView && localUrl ? (
+            <RTCView
+              streamURL={localUrl}
+              style={styles.localVideo}
+              objectFit="cover"
+              mirror
+            />
+          ) : null}
+
+          <View style={styles.callOverlayContent}>
+            {calls.callType !== "video" && (
+              <View style={styles.voiceAvatar}>
+                <Text style={styles.voiceAvatarText}>
+                  {activePeerUsername?.[0]?.toUpperCase() ?? "?"}
+                </Text>
+              </View>
+            )}
+            <Text style={styles.callName}>@{activePeerUsername}</Text>
+            <Text style={styles.callStatus}>
+              {calls.phase === "outgoing"
+                ? "Calling…"
+                : calls.phase === "connecting"
+                  ? "Connecting…"
+                  : "Connected"}
+            </Text>
+            <View style={styles.callControls}>
+              <TouchableOpacity style={styles.callControlBtn} onPress={toggleMute}>
+                <Text style={styles.callBtnText}>{muted ? "🔇" : "🎤"}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.callEndBtn} onPress={calls.endCall}>
+                <Text style={styles.callBtnText}>✕</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
         </View>
       </Modal>
     </CallContext.Provider>
@@ -291,44 +285,81 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.7)",
     justifyContent: "center",
+    alignItems: "center",
     padding: 24,
   },
-  modal: { backgroundColor: theme.bgHeader, borderRadius: 12, padding: 20 },
-  modalTitle: { color: theme.textPrimary, fontSize: 18, fontWeight: "500", marginBottom: 8 },
-  modalText: { color: theme.textSecondary, lineHeight: 20, marginBottom: 16 },
-  callActions: { flexDirection: "row", justifyContent: "center", gap: 32, marginTop: 8 },
-  callAccept: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: theme.accent,
-    alignItems: "center",
-    justifyContent: "center",
+  modal: {
+    backgroundColor: theme.bgPanel,
+    borderRadius: 12,
+    padding: 24,
+    width: "100%",
+    maxWidth: 320,
   },
+  modalTitle: { color: theme.textPrimary, fontSize: 18, fontWeight: "600", marginBottom: 8 },
+  modalText: { color: theme.textMuted, marginBottom: 20 },
+  callActions: { flexDirection: "row", justifyContent: "center", gap: 24 },
   callReject: {
     width: 56,
     height: 56,
     borderRadius: 28,
     backgroundColor: theme.danger,
-    alignItems: "center",
     justifyContent: "center",
+    alignItems: "center",
+  },
+  callAccept: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: "#3ba55c",
+    justifyContent: "center",
+    alignItems: "center",
   },
   callBtnText: { color: "#fff", fontSize: 22 },
-  callOverlay: {
-    flex: 1,
-    backgroundColor: theme.bgApp,
-    alignItems: "center",
-    justifyContent: "center",
-    padding: 24,
+  callOverlay: { flex: 1, backgroundColor: "#0b141a" },
+  remoteVideo: { ...StyleSheet.absoluteFillObject },
+  hiddenRtc: { width: 0, height: 0, opacity: 0 },
+  localVideo: {
+    position: "absolute",
+    bottom: 120,
+    right: 16,
+    width: 120,
+    height: 160,
+    borderRadius: 8,
   },
-  callOverlayTitle: { color: theme.textPrimary, fontSize: 22, marginBottom: 8 },
-  callOverlayStatus: { color: theme.textSecondary, marginBottom: 32 },
-  callRejectLarge: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: theme.danger,
+  callOverlayContent: {
+    flex: 1,
+    justifyContent: "flex-end",
     alignItems: "center",
+    paddingBottom: 48,
+    backgroundColor: "rgba(0,0,0,0.35)",
+  },
+  voiceAvatar: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: theme.accent,
     justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  voiceAvatarText: { color: "#fff", fontSize: 32, fontWeight: "700" },
+  callName: { color: theme.textPrimary, fontSize: 20, fontWeight: "600" },
+  callStatus: { color: theme.textMuted, marginTop: 4, marginBottom: 24 },
+  callControls: { flexDirection: "row", gap: 20 },
+  callControlBtn: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: theme.bgPanel,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  callEndBtn: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: theme.danger,
+    justifyContent: "center",
+    alignItems: "center",
   },
 });

@@ -69,7 +69,11 @@ export function VirtualMessageList({
       }}
       itemContent={(_index, item) => {
         if (item.kind === "date") {
-          return <div className="vc-date-divider">{item.label}</div>;
+          return (
+            <div className="vc-date-divider">
+              <span className="vc-date-divider__pill">{item.label}</span>
+            </div>
+          );
         }
         return <MessageBubble message={item.message} authToken={authToken} />;
       }}

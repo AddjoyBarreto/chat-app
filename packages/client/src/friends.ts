@@ -13,6 +13,7 @@ import type {
   UpdatePrivacyRequest,
 } from "@vaultchat/protocol";
 import { getClientConfig } from "./config.js";
+import { clientFetch } from "./http.js";
 import { parseApiResponse } from "./errors.js";
 
 function apiUrl(path: string) {
@@ -27,12 +28,12 @@ function authHeaders(token: string) {
 }
 
 export async function fetchFriends(token: string): Promise<FriendsListResponse> {
-  const res = await fetch(apiUrl("/api/v1/friends"), { headers: authHeaders(token) });
+  const res = await clientFetch(apiUrl("/api/v1/friends"), { headers: authHeaders(token) });
   return parseApiResponse(res);
 }
 
 export async function fetchFriendRequests(token: string): Promise<FriendRequestsResponse> {
-  const res = await fetch(apiUrl("/api/v1/friends/requests"), { headers: authHeaders(token) });
+  const res = await clientFetch(apiUrl("/api/v1/friends/requests"), { headers: authHeaders(token) });
   return parseApiResponse(res);
 }
 
@@ -40,7 +41,7 @@ export async function sendFriendRequest(
   token: string,
   username: string
 ): Promise<FriendRequestInfo> {
-  const res = await fetch(apiUrl("/api/v1/friends/request"), {
+  const res = await clientFetch(apiUrl("/api/v1/friends/request"), {
     method: "POST",
     headers: authHeaders(token),
     body: JSON.stringify({ username }),
@@ -52,7 +53,7 @@ export async function acceptFriendRequest(
   token: string,
   requestId: string
 ): Promise<FriendInfo> {
-  const res = await fetch(apiUrl(`/api/v1/friends/requests/${requestId}/accept`), {
+  const res = await clientFetch(apiUrl(`/api/v1/friends/requests/${requestId}/accept`), {
     method: "POST",
     headers: authHeaders(token),
   });
@@ -63,7 +64,7 @@ export async function rejectFriendRequest(
   token: string,
   requestId: string
 ): Promise<{ ok: true }> {
-  const res = await fetch(apiUrl(`/api/v1/friends/requests/${requestId}/reject`), {
+  const res = await clientFetch(apiUrl(`/api/v1/friends/requests/${requestId}/reject`), {
     method: "POST",
     headers: authHeaders(token),
   });
@@ -71,7 +72,7 @@ export async function rejectFriendRequest(
 }
 
 export async function removeFriend(token: string, friendId: string): Promise<{ ok: true }> {
-  const res = await fetch(apiUrl(`/api/v1/friends/${friendId}`), {
+  const res = await clientFetch(apiUrl(`/api/v1/friends/${friendId}`), {
     method: "DELETE",
     headers: authHeaders(token),
   });
@@ -79,7 +80,7 @@ export async function removeFriend(token: string, friendId: string): Promise<{ o
 }
 
 export async function blockUser(token: string, username: string): Promise<BlockInfo> {
-  const res = await fetch(apiUrl("/api/v1/blocks"), {
+  const res = await clientFetch(apiUrl("/api/v1/blocks"), {
     method: "POST",
     headers: authHeaders(token),
     body: JSON.stringify({ username }),
@@ -88,12 +89,12 @@ export async function blockUser(token: string, username: string): Promise<BlockI
 }
 
 export async function fetchBlocks(token: string): Promise<BlocksListResponse> {
-  const res = await fetch(apiUrl("/api/v1/blocks"), { headers: authHeaders(token) });
+  const res = await clientFetch(apiUrl("/api/v1/blocks"), { headers: authHeaders(token) });
   return parseApiResponse(res);
 }
 
 export async function unblockUser(token: string, userId: string): Promise<{ ok: true }> {
-  const res = await fetch(apiUrl(`/api/v1/blocks/${userId}`), {
+  const res = await clientFetch(apiUrl(`/api/v1/blocks/${userId}`), {
     method: "DELETE",
     headers: authHeaders(token),
   });
@@ -101,7 +102,7 @@ export async function unblockUser(token: string, userId: string): Promise<{ ok: 
 }
 
 export async function fetchPrivacySettings(token: string): Promise<PrivacySettingsResponse> {
-  const res = await fetch(apiUrl("/api/v1/privacy"), { headers: authHeaders(token) });
+  const res = await clientFetch(apiUrl("/api/v1/privacy"), { headers: authHeaders(token) });
   return parseApiResponse(res);
 }
 
@@ -109,7 +110,7 @@ export async function updatePrivacySettings(
   token: string,
   body: UpdatePrivacyRequest
 ): Promise<PrivacySettingsResponse> {
-  const res = await fetch(apiUrl("/api/v1/privacy"), {
+  const res = await clientFetch(apiUrl("/api/v1/privacy"), {
     method: "PATCH",
     headers: authHeaders(token),
     body: JSON.stringify(body),
@@ -122,7 +123,7 @@ export async function createCommunityInvite(
   communityId: string,
   body: CreateInviteRequest = {}
 ): Promise<InviteInfo> {
-  const res = await fetch(apiUrl(`/api/v1/communities/${communityId}/invites`), {
+  const res = await clientFetch(apiUrl(`/api/v1/communities/${communityId}/invites`), {
     method: "POST",
     headers: authHeaders(token),
     body: JSON.stringify(body),
@@ -131,7 +132,7 @@ export async function createCommunityInvite(
 }
 
 export async function redeemInvite(token: string, code: string): Promise<RedeemInviteResponse> {
-  const res = await fetch(apiUrl("/api/v1/invites/redeem"), {
+  const res = await clientFetch(apiUrl("/api/v1/invites/redeem"), {
     method: "POST",
     headers: authHeaders(token),
     body: JSON.stringify({ code }),

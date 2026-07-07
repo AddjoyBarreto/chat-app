@@ -324,3 +324,12 @@ export async function listUserDevices(
     })),
   };
 }
+
+export async function listPublicUserDevices(
+  ctx: ApiContext,
+  userId: string
+): Promise<import("@vaultchat/protocol").PublicUserDevicesResponse> {
+  const [user] = await ctx.db.select({ id: users.id }).from(users).where(eq(users.id, userId)).limit(1);
+  if (!user) throw new ApiCoreError("User not found", 404, "NOT_FOUND");
+  return listUserDevices(ctx, userId);
+}

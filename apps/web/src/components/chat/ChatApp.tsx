@@ -1,22 +1,25 @@
 "use client";
 
 import {
-  CallSession,
   captureGroupKeyFromContent,
   cacheDecryptedMessage,
   createLocalStorageAdapter,
   fetchGroups,
   fetchInbox,
   fetchOwnDeviceBundles,
+  fetchRecipientDeviceBundles,
+  MessageInbox,
+  mergeAndUploadAccountBackup,
   prepareMediaMessage,
-  replenishPreKeysIfNeeded,
-  repairServerPreKeysIfNeeded,
-  syncIdentityWithServer,
-  type CallPhase,
+  ReadStateManager,
+  bootstrapDevice,
+  provisionDeviceForLogin,
 } from "@vaultchat/client";
+import { useCallSession, useFriends } from "@vaultchat/chat-react";
 import { generateSafetyNumber, VaultDevice } from "@vaultchat/crypto";
-import type { CallType, ChannelInfo, ConversationPreview, FriendInfo, FriendRequestInfo, GroupInfo, WsServerEvent } from "@vaultchat/protocol";
+import type { ChannelInfo, ConversationPreview, GroupInfo, WsServerEvent } from "@vaultchat/protocol";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { SettingsModal } from "@/components/settings/SettingsModal";
 import { ActiveCallOverlay } from "./ActiveCallOverlay";
 import { IncomingCallModal } from "./IncomingCallModal";
 import { useGateway } from "@/hooks/useGateway";
@@ -35,11 +38,6 @@ import {
   fetchConversation,
   fetchConversations,
   fetchMe,
-  fetchFriends,
-  fetchFriendRequests,
-  sendFriendRequest,
-  acceptFriendRequest,
-  rejectFriendRequest,
   redeemInvite,
   fetchCommunityChannels,
   fetchChannelCategories,
@@ -51,6 +49,7 @@ import {
   sendEncryptedMessage,
   uploadPreKeys,
 } from "@/lib/client-api";
+import { registerWebPush } from "@/lib/push";
 import { ClientApiError, friendlyError, mapLoginError, mapRegistrationError } from "@/lib/errors";
 import {
   decryptEnvelope,
@@ -119,8 +118,6 @@ export function ChatApp() {
   const [messageCursor, setMessageCursor] = useState<string | undefined>();
   const [hasMoreMessages, setHasMoreMessages] = useState(false);
   const [loadingOlder, setLoadingOlder] = useState(false);
-  const [friends, setFriends] = useState<FriendInfo[]>([]);
-  const [incomingRequests, setIncomingRequests] = useState<FriendRequestInfo[]>([]);
   const [unreadByPeer, setUnreadByPeer] = useState<Record<string, number>>({});
   const [activeCommunity, setActiveCommunity] = useState<{ id: string; name: string } | null>(null);
   const [communityChannels, setCommunityChannels] = useState<ChannelInfo[]>([]);
@@ -130,6 +127,7 @@ export function ChatApp() {
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(false);
   const [sending, setSending] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [authMode, setAuthMode] = useState<AuthMode>("register");
   const [registerFields, setRegisterFields] = useState<RegistrationFields>({
     username: "",
@@ -148,8 +146,10 @@ export function ChatApp() {
 
   const deviceRef = useRef<VaultDevice | null>(null);
   const messageIdsRef = useRef(new Set<string>());
-  const processedEnvelopeIdsRef = useRef(new Set<string>());
-  const callSessionRef = useRef<CallSession | null>(null);
+  const inboxRef = useRef(new MessageInbox());
+  const readStateRef = useRef<ReadStateManager | null>(null);
+  const callsRef = useRef<ReturnType<typeof useCallSession> | null>(null);
+  const friendsRef = useRef<ReturnType<typeof useFriends> | null>(null);
   const conversationsRef = useRef(conversations);
   const peerRef = useRef(peer);
   const activeGroupRef = useRef(activeGroup);
@@ -158,26 +158,7 @@ export function ChatApp() {
   const groupMessageIdsRef = useRef(new Set<string>());
   const { toasts, show } = useToast();
 
-  const [callPhase, setCallPhase] = useState<CallPhase>("idle");
-  const [callType, setCallType] = useState<CallType>("voice");
-  const [callPeer, setCallPeer] = useState<{ id: string; username: string } | null>(null);
-  const [localStream, setLocalStream] = useState<MediaStream | null>(null);
-  const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
-  const [incomingCall, setIncomingCall] = useState<{
-    callId: string;
-    callerId: string;
-    callerUsername: string;
-    callType: CallType;
-  } | null>(null);
-
-  conversationsRef.current = conversations;
-  peerRef.current = peer;
-  activeGroupRef.current = activeGroup;
-  screenRef.current = screen;
-  tabRef.current = tab;
-
   const chatUnreadCount = Object.values(unreadByPeer).reduce((sum, n) => sum + n, 0);
-  const friendsUnreadCount = incomingRequests.length;
 
   function resolveUsername(userId: string) {
     if (peerRef.current?.id === userId) return peerRef.current.username;
@@ -200,10 +181,10 @@ export function ChatApp() {
       const device = deviceRef.current;
       if (!device || !session) return;
 
-      if (processedEnvelopeIdsRef.current.has(envelope.id)) return;
-      processedEnvelopeIdsRef.current.add(envelope.id);
+      if (inboxRef.current.hasProcessed(envelope.id)) return;
+      inboxRef.current.markProcessed(envelope.id);
 
-      const peerId = envelope.senderId === session.userId ? envelope.recipientId : envelope.senderId;
+      const peerId = inboxRef.current.peerIdForEnvelope(envelope, session.userId);
 
       try {
         const display = await decryptEnvelope(
@@ -240,9 +221,13 @@ export function ChatApp() {
 
         if (viewingConversation) {
           addMessage(display);
+          readStateRef.current?.markPeerRead(peerId, envelope.createdAt);
         } else if (
-          envelope.senderId !== session.userId &&
-          display.status !== "decrypt_failed"
+          readStateRef.current &&
+          inboxRef.current.shouldIncrementUnread(envelope, session.userId, readStateRef.current, {
+            isViewingPeer: false,
+            decryptFailed: display.status === "decrypt_failed",
+          })
         ) {
           setUnreadByPeer((prev) => ({
             ...prev,
@@ -266,19 +251,8 @@ export function ChatApp() {
 
   const handleServerEvent = useCallback(
     (event: WsServerEvent) => {
-      void callSessionRef.current?.handleServerEvent(event);
-      if (event.type === "friend_request" && session) {
-        setIncomingRequests((prev) => {
-          if (prev.some((r) => r.id === event.request.id)) return prev;
-          return [...prev, event.request];
-        });
-        if (tabRef.current !== "friends") {
-          show(`Friend request from @${event.request.senderUsername}`, "info");
-        }
-      }
-      if (event.type === "friend_accept" && session) {
-        void refreshFriends(session.token);
-      }
+      callsRef.current?.handleServerEvent(event);
+      friendsRef.current?.handleServerEvent(event);
       if (event.type === "group_message" && session) {
         const g = activeGroupRef.current;
         if (g && event.envelope.groupId === g.id) {
@@ -291,11 +265,8 @@ export function ChatApp() {
           );
         }
       }
-      if (event.type === "error" && event.error === "User offline") {
-        show("User is offline", "error");
-      }
     },
-    [session, show]
+    [session]
   );
 
   const { connectionState, isConnected, send } = useGateway(session?.token ?? null, {
@@ -307,6 +278,12 @@ export function ChatApp() {
         try {
           const { messages } = await fetchInbox(session.token);
           for (const envelope of messages) {
+            if (inboxRef.current.hasProcessed(envelope.id)) continue;
+            const peerId = inboxRef.current.peerIdForEnvelope(envelope, session.userId);
+            if (readStateRef.current?.isPeerMessageRead(peerId, envelope.createdAt)) {
+              inboxRef.current.markProcessed(envelope.id);
+              continue;
+            }
             await handleIncoming(envelope);
           }
         } catch {
@@ -320,97 +297,34 @@ export function ChatApp() {
     },
   });
 
+  const calls = useCallSession({
+    session,
+    send,
+    isConnected,
+    resolveUsername,
+    onToast: show,
+  });
+
+  const friends = useFriends({
+    token: session?.token ?? null,
+    onToast: show,
+  });
+
   useEffect(() => {
-    if (!session) {
-      callSessionRef.current = null;
-      return;
-    }
+    callsRef.current = calls;
+    friendsRef.current = friends;
+  }, [calls, friends]);
 
-    const callSession = new CallSession({
-      token: session.token,
-      selfUserId: session.userId,
-      sendWs: send,
-      onPhaseChange: (phase, callId) => {
-        setCallPhase(phase);
-        const cs = callSessionRef.current;
-        if (phase === "incoming" && cs && callId) {
-          const callerId = cs.getPeerId();
-          if (callerId) {
-            setIncomingCall({
-              callId,
-              callerId,
-              callerUsername: resolveUsername(callerId),
-              callType: cs.getCallType(),
-            });
-          }
-        }
-        if (phase === "idle" || phase === "ended") {
-          setIncomingCall(null);
-          if (phase === "idle") {
-            setCallPeer(null);
-            setLocalStream(null);
-            setRemoteStream(null);
-          }
-        }
-        if (
-          (phase === "outgoing" || phase === "connecting" || phase === "active") &&
-          cs
-        ) {
-          const peerId = cs.getPeerId();
-          if (peerId) {
-            setCallPeer({ id: peerId, username: resolveUsername(peerId) });
-            setCallType(cs.getCallType());
-          }
-        }
-      },
-      onRemoteStream: setRemoteStream,
-      onLocalStream: setLocalStream,
-      onError: (msg) => show(msg, "error"),
-    });
-    callSessionRef.current = callSession;
+  conversationsRef.current = conversations;
+  peerRef.current = peer;
+  activeGroupRef.current = activeGroup;
+  screenRef.current = screen;
+  tabRef.current = tab;
 
-    return () => {
-      void callSession.endCall();
-      callSessionRef.current = null;
-    };
-  }, [session?.token, session?.userId, send, show]);
-
-  async function startCall(type: CallType) {
-    if (!peer || !callSessionRef.current || callPhase !== "idle") return;
-    try {
-      await callSessionRef.current.startOutgoing(peer.id, type);
-    } catch (e) {
-      show(friendlyError(e), "error");
-    }
-  }
-
-  async function acceptIncomingCall() {
-    if (!incomingCall || !callSessionRef.current) return;
-    setIncomingCall(null);
-    try {
-      await callSessionRef.current.acceptIncoming(
-        incomingCall.callId,
-        incomingCall.callerId,
-        incomingCall.callType
-      );
-    } catch (e) {
-      show(friendlyError(e), "error");
-    }
-  }
-
-  function rejectIncomingCall() {
-    if (!incomingCall || !callSessionRef.current) return;
-    callSessionRef.current.rejectIncoming(incomingCall.callId);
-    setIncomingCall(null);
-  }
-
-  function endCall() {
-    void callSessionRef.current?.endCall();
-  }
-
-  const callActive = callPhase !== "idle" && callPhase !== "ended";
+  const friendsUnreadCount = friends.unreadCount;
+  const callActive = calls.inCall;
   const showCallOverlay =
-    callActive && callPhase !== "incoming" && callPeer !== null;
+    calls.inCall && calls.phase !== "incoming" && calls.callPeer !== null;
 
   async function refreshConversations(token: string) {
     try {
@@ -435,62 +349,40 @@ export function ChatApp() {
     }
   }
 
-  async function refreshFriends(token: string) {
-    try {
-      const [{ friends: list }, requests] = await Promise.all([
-        fetchFriends(token),
-        fetchFriendRequests(token),
-      ]);
-      setFriends(list);
-      setIncomingRequests(requests.incoming);
-    } catch (err) {
-      if (err instanceof ClientApiError && err.status === 401) {
-        handleLogout();
-        show("Session expired. Please register again.", "error");
-      }
-    }
-  }
-
   async function initDevice(sess: StoredSession) {
-    const device = await loadOrCreateDevice(sess);
+    const device = await bootstrapDevice(webStorage, sess);
     deviceRef.current = device;
-    const repaired = await repairServerPreKeysIfNeeded(
-      webStorage,
-      device,
-      sess.token,
-      sess.userId
-    );
-    if (repaired) show("Encryption keys repaired on server", "info");
-    const replenished = await replenishPreKeysIfNeeded(
-      webStorage,
-      device,
-      sess.token,
-      sess.userId
-    );
-    if (replenished) show("Encryption keys refreshed", "info");
   }
 
   useEffect(() => {
     const sess = loadSession();
     if (!sess) return;
     setSession(sess);
+    readStateRef.current = new ReadStateManager(webStorage, sess.userId, { token: sess.token });
     setLoading(true);
     void (async () => {
       try {
+        await readStateRef.current?.load();
         const me = await fetchMe(sess.token);
         const updated = { ...sess, emailVerified: me.emailVerified };
         if (me.emailVerified !== sess.emailVerified) {
           saveSession(updated);
         }
         setSession(updated);
+        if (!readStateRef.current) {
+          readStateRef.current = new ReadStateManager(webStorage, updated.userId, {
+            token: updated.token,
+          });
+        }
+        await readStateRef.current.load();
         if (!me.emailVerified) {
           setLoading(false);
           return;
         }
         await initDevice(updated);
+        void registerWebPush(updated.token);
         await refreshConversations(updated.token);
         await refreshGroups(updated.token);
-        await refreshFriends(updated.token);
       } catch (err) {
         setInitError(friendlyError(err));
       } finally {
@@ -524,6 +416,9 @@ export function ChatApp() {
         registrationId: material.registrationId,
       });
 
+      const linked = await VaultDevice.restore(reg.userId, reg.deviceId, device.exportState());
+      deviceRef.current = linked;
+
       await uploadPreKeys(reg.token, {
         signedPreKey: material.signedPreKey,
         oneTimePreKeys: material.oneTimePreKeys,
@@ -537,7 +432,14 @@ export function ChatApp() {
         emailVerified: reg.emailVerified,
       };
       saveSession(stored, fields.email);
-      persistDevice(device, reg.userId);
+      persistDevice(linked, reg.userId);
+      try {
+        await mergeAndUploadAccountBackup(reg.token, fields.password, linked);
+      } catch {
+        // non-fatal
+      }
+      readStateRef.current = new ReadStateManager(webStorage, stored.userId, { token: stored.token });
+      await readStateRef.current.load();
       setSession(stored);
       show("Check your email to verify your account.", "info");
     } catch (e) {
@@ -562,33 +464,20 @@ export function ChatApp() {
     const hint = getLoginHint(identifier);
 
     try {
-      let login = await loginOnServer({
+      const preLogin = await loginOnServer({
         identifier,
         password: loginPassword,
         deviceId: hint?.deviceId ?? 1,
       });
 
-      let device: VaultDevice;
-      try {
-        device = await loadOrCreateDevice({
-          username: login.username,
-          userId: login.userId,
-          token: login.token,
-          deviceId: login.deviceId,
-          emailVerified: login.emailVerified,
-        });
-      } catch {
-        device = await VaultDevice.create(login.username);
-      }
-
-      const synced = await syncIdentityWithServer(webStorage, device, {
+      const { login, device } = await provisionDeviceForLogin(webStorage, {
         identifier,
         password: loginPassword,
-        deviceId: login.deviceId,
-        userId: login.userId,
+        userId: preLogin.userId,
+        deviceIdHint: hint?.deviceId ?? preLogin.deviceId,
+        token: preLogin.token,
+        deviceName: "Web",
       });
-      login = synced.login;
-      device = synced.device;
 
       deviceRef.current = device;
       const stored: StoredSession = {
@@ -600,11 +489,12 @@ export function ChatApp() {
       };
       saveSession(stored, identifier.includes("@") ? identifier : undefined);
       persistDevice(device, login.userId);
+      readStateRef.current = new ReadStateManager(webStorage, stored.userId, { token: stored.token });
+      await readStateRef.current.load();
       setSession(stored);
       await initDevice(stored);
       await refreshConversations(stored.token);
       await refreshGroups(stored.token);
-      await refreshFriends(stored.token);
       show(`Welcome back, @${stored.username}!`, "info");
     } catch (e) {
       setLoginErrors(mapLoginError(e));
@@ -643,9 +533,9 @@ export function ChatApp() {
         saveSession(updated);
         setSession(updated);
         await initDevice(updated);
+        void registerWebPush(updated.token);
         await refreshConversations(updated.token);
         await refreshGroups(updated.token);
-        await refreshFriends(updated.token);
         show("Email verified! You can use VaultChat now.", "info");
       } else {
         show("Email not verified yet. Check your inbox.", "error");
@@ -656,11 +546,13 @@ export function ChatApp() {
   }
 
   function handleLogout() {
+    void readStateRef.current?.clear();
     clearSession();
     setSession(null);
     deviceRef.current = null;
     messageIdsRef.current.clear();
-    processedEnvelopeIdsRef.current.clear();
+    inboxRef.current.clearProcessed();
+    readStateRef.current = null;
     setMessages([]);
     setConversations([]);
     setPeer(null);
@@ -673,6 +565,8 @@ export function ChatApp() {
 
   async function openConversation(peerId: string, peerUsername: string) {
     if (!session) return;
+    const conv = conversations.find((c) => c.peerId === peerId);
+    if (conv) readStateRef.current?.markPeerRead(peerId, conv.lastMessageAt);
     setUnreadByPeer((prev) => {
       if (!prev[peerId]) return prev;
       const { [peerId]: _, ...rest } = prev;
@@ -696,7 +590,7 @@ export function ChatApp() {
       const decrypted: DisplayMessage[] = [];
 
       for (const envelope of envelopes) {
-        processedEnvelopeIdsRef.current.add(envelope.id);
+        inboxRef.current.markProcessed(envelope.id);
         const display = await decryptEnvelope(
           device,
           envelope,
@@ -714,6 +608,7 @@ export function ChatApp() {
       const last = decrypted[decrypted.length - 1];
       if (last) {
         setPreviews((p) => ({ ...p, [peerId]: previewText(last) }));
+        readStateRef.current?.markPeerRead(peerId, last.time);
       }
     } catch (e) {
       show(friendlyError(e), "error");
@@ -828,16 +723,17 @@ export function ChatApp() {
     addMessage(optimistic);
 
     try {
-      const [peerBundle, ownBundles] = await Promise.all([
-        fetchPreKeyBundle(peer.id),
+      const [peerBundles, ownBundles] = await Promise.all([
+        fetchRecipientDeviceBundles(peer.id),
         fetchOwnDeviceBundles(session.token, session.userId),
       ]);
-      const { recipientPayload, senderCiphertexts } = await encryptOutgoingMessage(
+      const { recipientPayload, recipientCiphertexts, senderCiphertexts } =
+        await encryptOutgoingMessage(
         device,
         session.userId,
         peer.id,
         { type: "text", text },
-        peerBundle,
+        peerBundles,
         ownBundles
       );
       const result = await sendEncryptedMessage(
@@ -846,8 +742,9 @@ export function ChatApp() {
         recipientPayload,
         "text",
         undefined,
-        peerBundle.deviceId,
-        senderCiphertexts
+        peerBundles[0]?.deviceId ?? 1,
+        senderCiphertexts,
+        recipientCiphertexts
       );
       persistDevice(device, session.userId);
 
@@ -897,16 +794,17 @@ export function ChatApp() {
         bytes,
         file.type || "application/octet-stream"
       );
-      const [peerBundle, ownBundles] = await Promise.all([
-        fetchPreKeyBundle(peer.id),
+      const [peerBundles, ownBundles] = await Promise.all([
+        fetchRecipientDeviceBundles(peer.id),
         fetchOwnDeviceBundles(session.token, session.userId),
       ]);
-      const { recipientPayload, senderCiphertexts } = await encryptOutgoingMessage(
+      const { recipientPayload, recipientCiphertexts, senderCiphertexts } =
+        await encryptOutgoingMessage(
         device,
         session.userId,
         peer.id,
         content,
-        peerBundle,
+        peerBundles,
         ownBundles
       );
       const result = await sendEncryptedMessage(
@@ -915,8 +813,9 @@ export function ChatApp() {
         recipientPayload,
         messageType,
         undefined,
-        peerBundle.deviceId,
-        senderCiphertexts
+        peerBundles[0]?.deviceId ?? 1,
+        senderCiphertexts,
+        recipientCiphertexts
       );
       persistDevice(device, session.userId);
 
@@ -1191,9 +1090,17 @@ export function ChatApp() {
       {screen === "list" && (
         <>
           <header className="vc-header">
-            <div className="vc-header__avatar">{session.username[0]}</div>
+            <button
+              type="button"
+              className="vc-header__avatar vc-header__avatar--btn"
+              onClick={() => setSettingsOpen(true)}
+              title="User settings"
+              aria-label="Open user settings"
+            >
+              {session.username[0]}
+            </button>
             <div className="vc-header__info">
-              <div className="vc-header__title">VaultChat</div>
+              <div className="vc-header__title">{session.username}</div>
               <div
                 className={`vc-header__subtitle${
                   isConnected ? " vc-header__subtitle--online" : ""
@@ -1203,6 +1110,15 @@ export function ChatApp() {
               </div>
             </div>
             <div className="vc-header__actions">
+              <button
+                type="button"
+                className="vc-icon-btn"
+                onClick={() => setSettingsOpen(true)}
+                title="Settings"
+                aria-label="Settings"
+              >
+                ⚙
+              </button>
               <button
                 type="button"
                 className="vc-icon-btn"
@@ -1241,7 +1157,6 @@ export function ChatApp() {
               className={`vc-tabs__btn${tab === "friends" ? " vc-tabs__btn--active" : ""}`}
               onClick={() => {
                 setTab("friends");
-                if (session) void refreshFriends(session.token);
               }}
             >
               <span className="vc-tabs__label">
@@ -1279,24 +1194,11 @@ export function ChatApp() {
           ) : tab === "friends" ? (
             <FriendsPanel
               authToken={session.token}
-              friends={friends}
-              incoming={incomingRequests}
-              onAddFriend={async (username) => {
-                if (!session) return;
-                await sendFriendRequest(session.token, username);
-                await refreshFriends(session.token);
-                show("Friend request sent.", "info");
-              }}
-              onAccept={async (requestId) => {
-                if (!session) return;
-                await acceptFriendRequest(session.token, requestId);
-                await refreshFriends(session.token);
-              }}
-              onReject={async (requestId) => {
-                if (!session) return;
-                await rejectFriendRequest(session.token, requestId);
-                await refreshFriends(session.token);
-              }}
+              friends={friends.friends}
+              incoming={friends.incoming}
+              onAddFriend={friends.addFriend}
+              onAccept={friends.accept}
+              onReject={friends.reject}
               onMessage={(id, username) => void openConversation(id, username)}
             />
           ) : (
@@ -1386,6 +1288,17 @@ export function ChatApp() {
           onDraftChange={setDraft}
           onSend={() => void handleSend()}
           onBack={() => {
+            if (session && peer && messages.length > 0) {
+              const latest = messages.reduce((a, b) =>
+                new Date(a.time) > new Date(b.time) ? a : b
+              );
+              readStateRef.current?.markPeerRead(peer.id, latest.time);
+            }
+            setUnreadByPeer((prev) => {
+              if (!peer || !prev[peer.id]) return prev;
+              const { [peer.id]: _, ...rest } = prev;
+              return rest;
+            });
             setScreen("list");
             setPeer(null);
             setMessages([]);
@@ -1395,8 +1308,8 @@ export function ChatApp() {
           onVerify={() => void handleVerify()}
           onAttachFile={(file) => void handleAttachFile(file)}
           authToken={session.token}
-          onVoiceCall={() => void startCall("voice")}
-          onVideoCall={() => void startCall("video")}
+          onVoiceCall={() => peer && void calls.startOutgoing(peer.id, "voice")}
+          onVideoCall={() => peer && void calls.startOutgoing(peer.id, "video")}
           callActive={callActive}
           sending={sending}
           connectionState={connectionState}
@@ -1406,23 +1319,25 @@ export function ChatApp() {
         />
       )}
 
-      {incomingCall && (
+      {calls.incomingCall && (
         <IncomingCallModal
-          callerUsername={incomingCall.callerUsername}
-          callType={incomingCall.callType}
-          onAccept={() => void acceptIncomingCall()}
-          onReject={rejectIncomingCall}
+          callerUsername={calls.incomingCall.callerUsername}
+          callType={calls.incomingCall.callType}
+          onAccept={() => void calls.acceptIncoming()}
+          onReject={calls.rejectIncoming}
         />
       )}
 
-      {showCallOverlay && callPeer && (
+      {showCallOverlay && calls.callPeer && (
         <ActiveCallOverlay
-          phase={callPhase}
-          callType={callType}
-          peerUsername={callPeer.username}
-          localStream={localStream}
-          remoteStream={remoteStream}
-          onEnd={endCall}
+          phase={calls.phase}
+          callType={calls.callType}
+          peerUsername={calls.callPeer.username}
+          localStream={calls.localStream}
+          remoteStream={calls.remoteStream}
+          onEnd={calls.endCall}
+          onToggleMute={calls.toggleMute}
+          onToggleCamera={calls.toggleCamera}
         />
       )}
 
@@ -1431,6 +1346,20 @@ export function ChatApp() {
           peerUsername={peer.username}
           safetyNumber={safetyNumber}
           onClose={() => setSafetyNumber(null)}
+        />
+      )}
+
+      {session && (
+        <SettingsModal
+          open={settingsOpen}
+          onClose={() => setSettingsOpen(false)}
+          token={session.token}
+          username={session.username}
+          onLogout={() => {
+            setSettingsOpen(false);
+            handleLogout();
+          }}
+          onShowToast={show}
         />
       )}
 

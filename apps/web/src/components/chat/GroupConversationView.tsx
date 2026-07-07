@@ -148,7 +148,9 @@ export function GroupConversationView({
         ) : (
           groups.map((g) => (
             <div key={g.date}>
-              <div className="vc-date-divider">{g.date}</div>
+              <div className="vc-date-divider">
+                <span className="vc-date-divider__pill">{g.date}</span>
+              </div>
               {g.messages.map((m) => {
                 const original = messages.find((x) => x.id === m.id)!;
                 const isOut = original.from === "me";

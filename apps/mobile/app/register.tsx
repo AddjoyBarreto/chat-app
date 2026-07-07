@@ -3,6 +3,7 @@ import {
   DEFAULT_PHONE_COUNTRY,
   friendlyError,
   hasFieldErrors,
+  mergeAndUploadAccountBackup,
   mapRegistrationError,
   normalizeRegistrationFields,
   persistDevice,
@@ -88,6 +89,8 @@ export default function RegisterScreen() {
         deviceName: Platform.OS,
       });
 
+      const linked = await VaultDevice.restore(reg.userId, reg.deviceId, device.exportState());
+
       await uploadPreKeys(reg.token, {
         signedPreKey: material.signedPreKey,
         oneTimePreKeys: material.oneTimePreKeys,
@@ -102,8 +105,13 @@ export default function RegisterScreen() {
       };
 
       await saveSession(storage, stored);
-      await persistDevice(storage, device, reg.userId);
-      setDevice(device);
+      await persistDevice(storage, linked, reg.userId);
+      try {
+        await mergeAndUploadAccountBackup(reg.token, normalized.password, linked);
+      } catch {
+        // non-fatal
+      }
+      setDevice(linked);
       setSession(stored);
       router.replace("/verify-email");
     } catch (e) {

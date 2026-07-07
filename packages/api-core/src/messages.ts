@@ -18,7 +18,7 @@ import { publishMessage } from "./redis.js";
 
 const MAX_CIPHERTEXT_CHARS = 131_072;
 
-function parseSenderCiphertexts(raw: string | null | undefined): Record<string, string> | undefined {
+function parseDeviceCiphertexts(raw: string | null | undefined): Record<string, string> | undefined {
   if (!raw) return undefined;
   try {
     return JSON.parse(raw) as Record<string, string>;
@@ -36,7 +36,8 @@ function toEnvelope(row: typeof messages.$inferSelect): MessageEnvelope {
     ciphertext: row.ciphertext,
     messageType: row.messageType as MessageEnvelope["messageType"],
     attachmentMeta: row.attachmentMeta ?? undefined,
-    senderCiphertexts: parseSenderCiphertexts(row.senderCiphertexts),
+    senderCiphertexts: parseDeviceCiphertexts(row.senderCiphertexts),
+    recipientCiphertexts: parseDeviceCiphertexts(row.recipientCiphertexts),
     createdAt: row.createdAt.toISOString(),
   };
 }
@@ -114,6 +115,9 @@ export async function sendMessage(
       senderDeviceId,
       recipientId: body.recipientId,
       ciphertext: body.ciphertext,
+      recipientCiphertexts: body.recipientCiphertexts
+        ? JSON.stringify(body.recipientCiphertexts)
+        : undefined,
       senderCiphertexts: body.senderCiphertexts
         ? JSON.stringify(body.senderCiphertexts)
         : undefined,
@@ -133,6 +137,7 @@ export async function sendMessage(
     messageType: body.messageType,
     attachmentMeta: body.attachmentMeta,
     senderCiphertexts: body.senderCiphertexts,
+    recipientCiphertexts: body.recipientCiphertexts,
     createdAt: row.createdAt.toISOString(),
   };
 

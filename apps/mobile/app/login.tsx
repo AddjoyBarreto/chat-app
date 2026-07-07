@@ -1,17 +1,11 @@
-import { VaultDevice } from "@vaultchat/crypto";
 import {
-  bootstrapDevice,
-  fetchConversations,
-  fetchInbox,
   getLoginHint,
   hasFieldErrors,
-  loadDevice,
-  loadSession,
   loginOnServer,
   mapLoginError,
   persistDevice,
+  provisionDeviceForLogin,
   saveSession,
-  syncIdentityWithServer,
   type LoginFieldErrors,
 } from "@vaultchat/client";
 import { Redirect, useRouter } from "expo-router";
@@ -57,35 +51,21 @@ export default function LoginScreen() {
     const hint = await getLoginHint(storage, id);
 
     try {
-      let login = await loginOnServer({
+      const preLogin = await loginOnServer({
         identifier: id,
         password,
         deviceId: hint?.deviceId ?? 1,
         deviceName: Platform.OS,
       });
 
-      let device: VaultDevice;
-      try {
-        device = await loadDevice(storage, {
-          username: login.username,
-          userId: login.userId,
-          token: login.token,
-          deviceId: login.deviceId,
-          emailVerified: login.emailVerified,
-        });
-      } catch {
-        device = await VaultDevice.create(login.username);
-      }
-
-      const synced = await syncIdentityWithServer(storage, device, {
+      const { login, device } = await provisionDeviceForLogin(storage, {
         identifier: id,
         password,
-        deviceId: login.deviceId,
-        userId: login.userId,
+        userId: preLogin.userId,
+        deviceIdHint: hint?.deviceId ?? preLogin.deviceId,
+        token: preLogin.token,
         deviceName: Platform.OS,
       });
-      login = synced.login;
-      device = synced.device;
 
       const stored = {
         username: login.username,

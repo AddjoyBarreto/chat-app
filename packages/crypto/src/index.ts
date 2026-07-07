@@ -11,3 +11,8 @@ export { generateSafetyNumber } from "./safety.js";
 export { serializeMessageContent, parseMessageContent } from "./content.js";
 export { GroupCipher } from "./group.js";
 export { verifyPreKeyBundle, deviceMaterialMatchesServer } from "./bundle.js";
+export {
+  encryptAccountBackup,
+  decryptAccountBackup,
+  type AccountKeyBackupPayload,
+} from "./backup.js";

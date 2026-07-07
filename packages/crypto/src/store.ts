@@ -4,7 +4,7 @@ import {
   type SessionRecordType,
   type StorageType,
 } from "@privacyresearch/libsignal-protocol-typescript";
-import { arrayBufferToBase64, base64ToArrayBuffer } from "./buffers.js";
+import { arrayBufferToBase64, base64ToArrayBuffer, buffersEqual } from "./buffers.js";
 
 export interface SerializedKeyPair {
   pubKey: string;
@@ -115,7 +115,7 @@ export class SignalProtocolStore implements StorageType {
   ): Promise<boolean> {
     const existing = this.trustedIdentities.get(identifier);
     if (!existing) return true;
-    return Buffer.from(existing).equals(Buffer.from(identityKey));
+    return buffersEqual(existing, identityKey);
   }
 
   async saveIdentity(
@@ -124,7 +124,7 @@ export class SignalProtocolStore implements StorageType {
     _nonblockingApproval?: boolean
   ): Promise<boolean> {
     const existing = this.trustedIdentities.get(encodedAddress);
-    if (existing && !Buffer.from(existing).equals(Buffer.from(publicKey))) {
+    if (existing && !buffersEqual(existing, publicKey)) {
       return false;
     }
     this.trustedIdentities.set(encodedAddress, publicKey);

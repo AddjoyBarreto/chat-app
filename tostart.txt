@@ -32,13 +32,27 @@ DATABASE_URL=postgres://vaultchat:vaultchat@localhost:5432/vaultchat pnpm db:mig
 
 # 4. Start API + WebSocket (one terminal)
 pnpm dev:stack
-# Or separately:
-#   pnpm --filter @vaultchat/web dev      # :3000
-#   pnpm --filter @vaultchat/gateway dev  # :3001
 
-# 5. Web — open http://localhost:3000/chat in two browser tabs
+# 5a. Native desktop app (Mac/Windows) — Discord-style UI in a real window
+#    Requires: Rust (https://rustup.rs) + Xcode CLT on Mac / VS Build Tools on Windows
+#    Terminal 1: pnpm dev:stack   (API :3000 + gateway :3001 — REQUIRED for desktop login)
+#    Terminal 2:
+pnpm desktop
+#    This runs `tauri dev` — opens VaultChat.app window, not a browser tab.
+#    Browser-only fallback (no Rust): pnpm --filter @vaultchat/desktop dev:web → :3002
+
+#    Build native app (.app on Mac, .exe on Windows):
+pnpm desktop:build
+#    Output: apps/desktop/src-tauri/target/release/bundle/macos/VaultChat.app
+#    Optional DMG (may fail on some Mac setups): pnpm --filter @vaultchat/desktop build:dmg
+#    If pnpm desktop fails with "Port 3002 is already in use", stop other dev servers
+#    or run: node scripts/free-port.mjs 3002
+
+# 5b. Web — open http://localhost:3000/chat in two browser tabs
 #    Register two users, start a 1:1 chat, send messages
 #    Optional: 📞 / 📹 voice or video calls (allow mic/camera in browser)
+
+# 5c. Desktop browser UI (optional) — http://localhost:3002 if using dev:web only
 
 # 6. Mobile (physical device or emulator on same LAN)
 #    Edit apps/mobile/app.json → extra.apiBaseUrl + extra.wsUrl to your machine LAN IP

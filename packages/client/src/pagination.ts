@@ -1,5 +1,6 @@
 import type { PaginationOptions } from "@vaultchat/protocol";
 import { getClientConfig } from "./config.js";
+import { clientFetch } from "./http.js";
 import { parseApiResponse } from "./errors.js";
 
 function apiUrl(path: string) {
@@ -26,7 +27,7 @@ export async function fetchConversation(
   peerId: string,
   opts?: PaginationOptions
 ) {
-  const res = await fetch(
+  const res = await clientFetch(
     apiUrl(`/api/v1/conversations/${peerId}${paginationQuery(opts)}`),
     { headers: authHeaders(token) }
   );
@@ -38,7 +39,7 @@ export async function fetchGroupMessages(
   groupId: string,
   opts?: PaginationOptions
 ) {
-  const res = await fetch(
+  const res = await clientFetch(
     apiUrl(`/api/v1/groups/${groupId}/messages${paginationQuery(opts)}`),
     { headers: authHeaders(token) }
   );

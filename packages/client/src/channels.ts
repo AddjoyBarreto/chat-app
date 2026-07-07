@@ -10,6 +10,7 @@ import type {
   VoicePresenceResponse,
 } from "@vaultchat/protocol";
 import { getClientConfig } from "./config.js";
+import { clientFetch } from "./http.js";
 import { parseApiResponse } from "./errors.js";
 
 function apiUrl(path: string) {
@@ -35,7 +36,7 @@ export async function fetchCommunityChannels(
   token: string,
   communityId: string
 ): Promise<{ channels: ChannelInfo[] }> {
-  const res = await fetch(apiUrl(`/api/v1/communities/${communityId}/channels`), {
+  const res = await clientFetch(apiUrl(`/api/v1/communities/${communityId}/channels`), {
     headers: authHeaders(token),
   });
   return parseApiResponse(res);
@@ -45,7 +46,7 @@ export async function fetchChannelCategories(
   token: string,
   communityId: string
 ): Promise<{ categories: ChannelCategoryInfo[] }> {
-  const res = await fetch(apiUrl(`/api/v1/communities/${communityId}/categories`), {
+  const res = await clientFetch(apiUrl(`/api/v1/communities/${communityId}/categories`), {
     headers: authHeaders(token),
   });
   return parseApiResponse(res);
@@ -56,7 +57,7 @@ export async function createCommunityChannel(
   communityId: string,
   body: CreateChannelRequest
 ): Promise<ChannelInfo> {
-  const res = await fetch(apiUrl(`/api/v1/communities/${communityId}/channels`), {
+  const res = await clientFetch(apiUrl(`/api/v1/communities/${communityId}/channels`), {
     method: "POST",
     headers: authHeaders(token),
     body: JSON.stringify(body),
@@ -69,7 +70,7 @@ export async function createChannelCategory(
   communityId: string,
   body: CreateCategoryRequest
 ): Promise<ChannelCategoryInfo> {
-  const res = await fetch(apiUrl(`/api/v1/communities/${communityId}/categories`), {
+  const res = await clientFetch(apiUrl(`/api/v1/communities/${communityId}/categories`), {
     method: "POST",
     headers: authHeaders(token),
     body: JSON.stringify(body),
@@ -82,7 +83,7 @@ export async function fetchChannelMessages(
   channelId: string,
   opts?: PaginationOptions
 ): Promise<ChannelMessagesResponse> {
-  const res = await fetch(
+  const res = await clientFetch(
     apiUrl(`/api/v1/channels/${channelId}/messages${paginationQuery(opts)}`),
     { headers: authHeaders(token) }
   );
@@ -94,7 +95,7 @@ export async function sendChannelMessage(
   channelId: string,
   body: SendChannelMessageRequest
 ): Promise<{ messageId: string; createdAt: string }> {
-  const res = await fetch(apiUrl(`/api/v1/channels/${channelId}/messages`), {
+  const res = await clientFetch(apiUrl(`/api/v1/channels/${channelId}/messages`), {
     method: "POST",
     headers: authHeaders(token),
     body: JSON.stringify(body),
@@ -106,7 +107,7 @@ export async function joinVoiceChannel(
   token: string,
   channelId: string
 ): Promise<VoicePresenceResponse> {
-  const res = await fetch(apiUrl(`/api/v1/channels/${channelId}/voice/join`), {
+  const res = await clientFetch(apiUrl(`/api/v1/channels/${channelId}/voice/join`), {
     method: "POST",
     headers: authHeaders(token),
   });
@@ -117,7 +118,7 @@ export async function leaveVoiceChannel(
   token: string,
   channelId: string
 ): Promise<VoicePresenceResponse> {
-  const res = await fetch(apiUrl(`/api/v1/channels/${channelId}/voice/leave`), {
+  const res = await clientFetch(apiUrl(`/api/v1/channels/${channelId}/voice/leave`), {
     method: "POST",
     headers: authHeaders(token),
   });
@@ -128,7 +129,7 @@ export async function fetchVoicePresence(
   token: string,
   channelId: string
 ): Promise<VoicePresenceResponse> {
-  const res = await fetch(apiUrl(`/api/v1/channels/${channelId}/voice/presence`), {
+  const res = await clientFetch(apiUrl(`/api/v1/channels/${channelId}/voice/presence`), {
     headers: authHeaders(token),
   });
   return parseApiResponse(res);

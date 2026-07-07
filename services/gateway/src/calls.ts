@@ -1,4 +1,12 @@
 import type { CallType, WsClientEvent, WsServerEvent } from "@vaultchat/protocol";
+import type Redis from "ioredis";
+import {
+  deleteCall,
+  getCall,
+  listCallsForUser,
+  saveCall,
+  type CallSession,
+} from "./call-store.js";
 
 const RING_TIMEOUT_MS = 45_000;
 
@@ -26,20 +34,6 @@ async function notifyCallPush(
   }
 }
 
-interface CallSession {
-  callId: string;
-  callerId: string;
-  calleeId: string;
-  callType: CallType;
-  state: "ringing" | "active" | "ended";
-}
-
-const calls = new Map<string, CallSession>();
-
-export function getCall(callId: string): CallSession | undefined {
-  return calls.get(callId);
-}
-
 function isParticipant(call: CallSession, userId: string): boolean {
   return call.callerId === userId || call.calleeId === userId;
 }
@@ -48,23 +42,26 @@ function peerId(call: CallSession, userId: string): string {
   return call.callerId === userId ? call.calleeId : call.callerId;
 }
 
-export function handleCallEvent(
+export async function handleCallEvent(
+  redis: Redis,
   userId: string,
   event: WsClientEvent,
   sendToUser: (targetUserId: string, payload: WsServerEvent) => boolean
-): WsServerEvent | null {
+): Promise<WsServerEvent | null> {
   switch (event.type) {
     case "call_invite": {
       if (event.calleeId === userId) return { type: "error", error: "Cannot call yourself" };
-      if (calls.has(event.callId)) return { type: "error", error: "Call already exists" };
+      const existing = await getCall(redis, event.callId);
+      if (existing) return { type: "error", error: "Call already exists" };
 
-      calls.set(event.callId, {
+      const call: CallSession = {
         callId: event.callId,
         callerId: userId,
         calleeId: event.calleeId,
         callType: event.callType,
         state: "ringing",
-      });
+      };
+      await saveCall(redis, call);
 
       const delivered = sendToUser(event.calleeId, {
         type: "call_incoming",
@@ -73,20 +70,41 @@ export function handleCallEvent(
         callType: event.callType,
       });
 
+      if (!delivered) {
+        await deleteCall(redis, call);
+        sendToUser(userId, {
+          type: "call_ended",
+          callId: event.callId,
+          reason: "unavailable",
+        });
+        return { type: "error", error: "User is offline" };
+      }
+
       void notifyCallPush(event.calleeId, userId, event.callType, event.callId);
 
       setTimeout(() => {
-        const pending = calls.get(event.callId);
-        if (!pending || pending.state !== "ringing") return;
-        sendToUser(pending.callerId, { type: "call_ended", callId: event.callId, reason: "no_answer" });
-        calls.delete(event.callId);
+        void (async () => {
+          const pending = await getCall(redis, event.callId);
+          if (!pending || pending.state !== "ringing") return;
+          sendToUser(pending.callerId, {
+            type: "call_ended",
+            callId: event.callId,
+            reason: "no_answer",
+          });
+          sendToUser(pending.calleeId, {
+            type: "call_ended",
+            callId: event.callId,
+            reason: "no_answer",
+          });
+          await deleteCall(redis, pending);
+        })();
       }, RING_TIMEOUT_MS);
 
       return null;
     }
 
     case "call_accept": {
-      const call = calls.get(event.callId);
+      const call = await getCall(redis, event.callId);
       if (!call || !isParticipant(call, userId) || call.state !== "ringing") {
         return { type: "error", error: "Invalid call" };
       }
@@ -94,12 +112,13 @@ export function handleCallEvent(
         return { type: "error", error: "Only callee can accept" };
       }
       call.state = "active";
+      await saveCall(redis, call);
       sendToUser(call.callerId, { type: "call_accepted", callId: call.callId, peerId: userId });
       return null;
     }
 
     case "call_reject": {
-      const call = calls.get(event.callId);
+      const call = await getCall(redis, event.callId);
       if (!call || !isParticipant(call, userId)) {
         return { type: "error", error: "Invalid call" };
       }
@@ -108,14 +127,14 @@ export function handleCallEvent(
         callId: event.callId,
         reason: event.reason,
       });
-      calls.delete(event.callId);
+      await deleteCall(redis, call);
       return null;
     }
 
     case "call_offer":
     case "call_answer":
     case "call_ice": {
-      const call = calls.get(event.callId);
+      const call = await getCall(redis, event.callId);
       if (!call || !isParticipant(call, userId) || call.state === "ended") {
         return { type: "error", error: "Invalid call" };
       }
@@ -131,13 +150,13 @@ export function handleCallEvent(
     }
 
     case "call_end": {
-      const call = calls.get(event.callId);
+      const call = await getCall(redis, event.callId);
       if (!call || !isParticipant(call, userId)) {
         return { type: "error", error: "Invalid call" };
       }
       const other = peerId(call, userId);
       sendToUser(other, { type: "call_ended", callId: event.callId });
-      calls.delete(event.callId);
+      await deleteCall(redis, call);
       return null;
     }
 
@@ -146,14 +165,15 @@ export function handleCallEvent(
   }
 }
 
-export function cleanupCallsForUser(
+export async function cleanupCallsForUser(
+  redis: Redis,
   userId: string,
   sendToUser: (targetUserId: string, payload: WsServerEvent) => boolean
 ) {
-  for (const [callId, call] of calls) {
-    if (call.callerId !== userId && call.calleeId !== userId) continue;
+  const active = await listCallsForUser(redis, userId);
+  for (const call of active) {
     const other = peerId(call, userId);
-    sendToUser(other, { type: "call_ended", callId, reason: "disconnected" });
-    calls.delete(callId);
+    sendToUser(other, { type: "call_ended", callId: call.callId, reason: "disconnected" });
+    await deleteCall(redis, call);
   }
 }

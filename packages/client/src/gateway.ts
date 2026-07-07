@@ -21,7 +21,7 @@ const PING_INTERVAL = 25_000;
 export interface GatewayHandle {
   close: () => void;
   reconnect: () => void;
-  send: (event: WsClientEvent) => void;
+  send: (event: WsClientEvent) => boolean;
 }
 
 export function createGateway(
@@ -36,10 +36,12 @@ export function createGateway(
 ): GatewayHandle {
   let ws: WebSocket | null = null;
 
-  function sendEvent(event: WsClientEvent) {
+  function sendEvent(event: WsClientEvent): boolean {
     if (ws?.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify(event));
+      return true;
     }
+    return false;
   }
   let reconnectAttempt = 0;
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;

@@ -18,8 +18,12 @@ export interface LoginHint {
   deviceId: number;
 }
 
+let sharedLocalStorageAdapter: StorageAdapter | null = null;
+
 export function createLocalStorageAdapter(): StorageAdapter {
-  return {
+  if (sharedLocalStorageAdapter) return sharedLocalStorageAdapter;
+
+  sharedLocalStorageAdapter = {
     async getItem(key) {
       if (typeof localStorage === "undefined") return null;
       return localStorage.getItem(key);
@@ -31,4 +35,6 @@ export function createLocalStorageAdapter(): StorageAdapter {
       localStorage.removeItem(key);
     },
   };
+
+  return sharedLocalStorageAdapter;
 }

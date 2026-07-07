@@ -12,7 +12,7 @@ config.resolver.extraNodeModules = {
   "react/jsx-runtime": path.resolve(projectRoot, "node_modules/react/jsx-runtime"),
 };
 
-// Run crypto polyfills before the app entry on fast refresh.
+// Buffer only before main; TextDecoder is patched in index.js after Expo.fx loads.
 config.serializer.getModulesRunBeforeMainModule = () => [
   path.resolve(projectRoot, "polyfills.js"),
 ];

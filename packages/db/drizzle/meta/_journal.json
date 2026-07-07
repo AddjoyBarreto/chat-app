@@ -57,6 +57,13 @@
       "when": 1781297000000,
       "tag": "0008_account_key_backups",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1781298000000,
+      "tag": "0009_channel_privacy",
+      "breakpoints": true
     }
   ]
 }

@@ -384,6 +384,14 @@ export function useVaultChat(options: UseVaultChatOptions = {}) {
     setUnreadByPeer({});
   }
 
+  async function closeConversation() {
+    setPeer(null);
+    setMessages([]);
+    messageIdsRef.current.clear();
+    setMessageCursor(undefined);
+    setHasMoreMessages(false);
+  }
+
   async function openConversation(peerId: string, peerUsername: string) {
     const sess = sessionRef.current;
     const readState = readStateRef.current;
@@ -611,6 +619,7 @@ export function useVaultChat(options: UseVaultChatOptions = {}) {
     logout,
     register,
     openConversation,
+    closeConversation,
     loadOlderMessages,
     startNewChat,
     sendMessage,

@@ -1,5 +1,7 @@
 import { Redirect } from "expo-router";
-import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
+import { Button } from "@/components/ui/Button";
+import { EmptyState } from "@/components/ui/EmptyState";
 import { useApp } from "@/context/AppContext";
 import { theme } from "@/theme";
 
@@ -9,12 +11,12 @@ export default function IndexScreen() {
   if (initError) {
     return (
       <View style={styles.center}>
-        <Text style={styles.errorIcon}>⚠️</Text>
-        <Text style={styles.title}>Setup error</Text>
-        <Text style={styles.subtitle}>{initError}</Text>
-        <TouchableOpacity style={styles.btn} onPress={() => void logout()}>
-          <Text style={styles.btnText}>Reset & register again</Text>
-        </TouchableOpacity>
+        <EmptyState icon="⚠️" title="Setup error" description={initError} />
+        <Button
+          title="Reset & register again"
+          onPress={() => void logout()}
+          style={styles.btn}
+        />
       </View>
     );
   }
@@ -22,7 +24,9 @@ export default function IndexScreen() {
   if (!ready) {
     return (
       <View style={styles.center}>
-        <ActivityIndicator color={theme.accent} />
+        <Text style={styles.logo}>🔒</Text>
+        <Text style={styles.brand}>VaultChat</Text>
+        <ActivityIndicator color={theme.accent} style={styles.spinner} />
       </View>
     );
   }
@@ -40,16 +44,17 @@ const styles = StyleSheet.create({
     backgroundColor: theme.bgApp,
     alignItems: "center",
     justifyContent: "center",
-    padding: 24,
+    padding: theme.spacing.xl,
   },
-  errorIcon: { fontSize: 48, marginBottom: 16 },
-  title: { color: theme.textPrimary, fontSize: 18, fontWeight: "600", marginBottom: 8 },
-  subtitle: { color: theme.textSecondary, textAlign: "center", lineHeight: 22, marginBottom: 24 },
-  btn: {
-    backgroundColor: theme.accent,
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 8,
+  logo: { fontSize: 52, marginBottom: theme.spacing.sm },
+  brand: {
+    color: theme.accent,
+    fontSize: theme.fontSize.sm,
+    fontWeight: "700",
+    letterSpacing: 1.2,
+    textTransform: "uppercase",
+    marginBottom: theme.spacing.xl,
   },
-  btnText: { color: theme.bgApp, fontWeight: "600" },
+  spinner: { marginTop: theme.spacing.md },
+  btn: { marginTop: theme.spacing.xl, minWidth: 240 },
 });

@@ -1,20 +1,31 @@
-import type { useCallSession, useVaultChat } from "@vaultchat/chat-react";
+import type { useCallSession, useFriends, useVaultChat } from "@vaultchat/chat-react";
+import { presenceLabel } from "@vaultchat/client";
 import { Virtuoso } from "react-virtuoso";
 import { groupByDate } from "@vaultchat/client";
 import { useMemo } from "react";
 
 type Chat = ReturnType<typeof useVaultChat>;
 type Calls = ReturnType<typeof useCallSession>;
+type Friends = ReturnType<typeof useFriends>;
 
-function formatTime(ts: number) {
+function formatTime(ts: string | number) {
   return new Date(ts).toLocaleTimeString([], {
     hour: "2-digit",
     minute: "2-digit",
   });
 }
 
-export function ChatPanel({ chat, calls }: { chat: Chat; calls: Calls }) {
+export function ChatPanel({
+  chat,
+  calls,
+  friends,
+}: {
+  chat: Chat;
+  calls: Calls;
+  friends: Friends;
+}) {
   const peer = chat.peer!;
+  const peerPresence = friends.getPresence(peer.id);
 
   const items = useMemo(() => {
     const groups = groupByDate(chat.messages);
@@ -39,12 +50,8 @@ export function ChatPanel({ chat, calls }: { chat: Chat; calls: Calls }) {
         <span className="dc-chat__avatar-sm">{peer.username[0]}</span>
         <div className="dc-chat__header-text">
           <h1 className="dc-chat__title">@{peer.username}</h1>
-          <span
-            className={`dc-chat__status${
-              chat.isConnected ? " dc-chat__status--online" : ""
-            }`}
-          >
-            {chat.isConnected ? "Online" : chat.connectionState}
+          <span className={`dc-chat__status vc-presence--${peerPresence === "offline" ? "offline" : peerPresence}`}>
+            {presenceLabel(peerPresence)}
           </span>
         </div>
         <div className="dc-chat__header-actions">

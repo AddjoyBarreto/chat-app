@@ -6,6 +6,7 @@ import {
   encryptOutgoingMessage,
   fetchConversation,
   fetchOwnDeviceBundles,
+  fetchPreKeyBundle,
   fetchRecipientDeviceBundles,
   formatMessageDate,
   friendlyError,
@@ -23,18 +24,18 @@ import {
   Alert,
   FlatList,
   Image,
-  KeyboardAvoidingView,
   Modal,
   Platform,
   StyleSheet,
   Text,
-  TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
 import { useApp, storage } from "@/context/AppContext";
 import { useCall } from "@/context/CallContext";
 import { MediaBubble } from "@/components/MediaBubble";
+import { ChatComposer } from "@/components/ChatComposer";
+import { ChatScreenLayout } from "@/components/ChatScreenLayout";
 import { pickAndPrepareMedia } from "@/lib/media";
 import { callsSupported } from "@/lib/webrtc";
 import { theme } from "@/theme";
@@ -44,7 +45,7 @@ export default function ConversationScreen() {
     peerId: string;
     peerUsername: string;
   }>();
-  const { session, device, onMessageHandlers, refreshConversations } = useApp();
+  const { session, device, onMessageHandlers, refreshConversations, conversations, setActivePeer, markConversationRead } = useApp();
   const { canCall, startOutgoing } = useCall();
   const navigation = useNavigation();
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
@@ -103,10 +104,19 @@ export default function ConversationScreen() {
       if (!relevant) return;
       if (display.content.type === "group_key") return;
       addMessage(display);
+      markConversationRead(peerId, envelope.createdAt);
       void refreshConversations();
     },
-    [session, peerId, addMessage, refreshConversations]
+    [session, peerId, addMessage, refreshConversations, markConversationRead]
   );
+
+  useEffect(() => {
+    if (!peerId) return;
+    setActivePeer(peerId);
+    const conv = conversations.find((c) => c.peerId === peerId);
+    if (conv) markConversationRead(peerId, conv.lastMessageAt);
+    return () => setActivePeer(null);
+  }, [peerId, conversations, setActivePeer, markConversationRead]);
 
   useEffect(() => {
     onMessageHandlers.current.add(handleIncoming);
@@ -140,6 +150,8 @@ export default function ConversationScreen() {
         setMessages(sortMessages(decrypted));
         setMessageCursor(cursor);
         setHasMore(Boolean(more));
+        const last = decrypted[decrypted.length - 1];
+        if (last) markConversationRead(peerId, last.time);
       } catch (e) {
         Alert.alert("Error", friendlyError(e));
       } finally {
@@ -367,63 +379,47 @@ export default function ConversationScreen() {
   }
 
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
-      keyboardVerticalOffset={90}
-    >
-      <FlatList
-        data={messages}
-        keyExtractor={(item) => item.id}
-        renderItem={renderBubble}
-        contentContainerStyle={styles.messageList}
-        ListHeaderComponent={
-          hasMore ? (
-            <TouchableOpacity style={styles.loadOlder} onPress={() => void loadOlder()} disabled={loadingOlder}>
-              <Text style={styles.loadOlderText}>
-                {loadingOlder ? "Loading…" : "Load older messages"}
-              </Text>
-            </TouchableOpacity>
-          ) : null
+    <>
+      <ChatScreenLayout
+        list={
+          <FlatList
+            data={messages}
+            keyExtractor={(item) => item.id}
+            renderItem={renderBubble}
+            style={styles.list}
+            contentContainerStyle={styles.messageList}
+            keyboardShouldPersistTaps="always"
+            keyboardDismissMode="interactive"
+            ListHeaderComponent={
+              hasMore ? (
+                <TouchableOpacity style={styles.loadOlder} onPress={() => void loadOlder()} disabled={loadingOlder}>
+                  <Text style={styles.loadOlderText}>
+                    {loadingOlder ? "Loading…" : "Load older messages"}
+                  </Text>
+                </TouchableOpacity>
+              ) : null
+            }
+            ListEmptyComponent={
+              <View style={styles.empty}>
+                <Text style={styles.emptyText}>
+                  🔒 Messages are end-to-end encrypted. No one outside this chat can read them.
+                </Text>
+              </View>
+            }
+          />
         }
-        ListEmptyComponent={
-          <View style={styles.empty}>
-            <Text style={styles.emptyText}>
-              🔒 Messages are end-to-end encrypted. No one outside this chat can read them.
-            </Text>
-          </View>
+        composer={
+          <ChatComposer
+            value={draft}
+            onChangeText={setDraft}
+            onSend={() => void handleSend()}
+            onAttach={() => void handleAttachMedia()}
+            sending={sending}
+            attachDisabled={sending}
+            sendDisabled={!draft.trim()}
+          />
         }
       />
-
-      <View style={styles.composer}>
-        <TouchableOpacity
-          style={styles.attachBtn}
-          onPress={() => void handleAttachMedia()}
-          disabled={sending}
-        >
-          <Text style={styles.attachBtnText}>📎</Text>
-        </TouchableOpacity>
-        <TextInput
-          style={styles.composerInput}
-          placeholder="Message"
-          placeholderTextColor={theme.textMuted}
-          value={draft}
-          onChangeText={setDraft}
-          multiline
-          editable={!sending}
-        />
-        <TouchableOpacity
-          style={[styles.sendBtn, (!draft.trim() || sending) && styles.sendBtnDisabled]}
-          onPress={() => void handleSend()}
-          disabled={!draft.trim() || sending}
-        >
-          {sending ? (
-            <ActivityIndicator size="small" color={theme.bgApp} />
-          ) : (
-            <Text style={styles.sendBtnText}>➤</Text>
-          )}
-        </TouchableOpacity>
-      </View>
 
       <Modal visible={!!safetyNumber} transparent animationType="fade">
         <View style={styles.modalOverlay}>
@@ -441,12 +437,12 @@ export default function ConversationScreen() {
           </View>
         </View>
       </Modal>
-    </KeyboardAvoidingView>
+    </>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.bgApp },
+  list: { flex: 1, backgroundColor: theme.bgApp },
   loading: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: theme.bgApp },
   messageList: { padding: 12, flexGrow: 1 },
   loadOlder: { alignItems: "center", paddingVertical: 12 },
@@ -454,47 +450,18 @@ const styles = StyleSheet.create({
   bubbleRow: { marginVertical: 2 },
   bubbleRowOut: { alignItems: "flex-end" },
   bubbleRowIn: { alignItems: "flex-start" },
-  bubble: { maxWidth: "82%", padding: 8, borderRadius: 8 },
-  bubbleOut: { backgroundColor: theme.bgBubbleOut, borderTopRightRadius: 0 },
-  bubbleIn: { backgroundColor: theme.bgBubbleIn, borderTopLeftRadius: 0 },
+  bubble: {
+    maxWidth: "82%",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: theme.radius.md,
+  },
+  bubbleOut: { backgroundColor: theme.bgBubbleOut, borderBottomRightRadius: 4 },
+  bubbleIn: { backgroundColor: theme.bgBubbleIn, borderBottomLeftRadius: 4 },
   bubbleFailed: { borderWidth: 1, borderColor: theme.danger },
   bubbleText: { color: theme.textPrimary, fontSize: 15, lineHeight: 20 },
   bubbleImage: { width: 200, height: 200, borderRadius: 6, marginBottom: 4 },
   bubbleMeta: { color: "rgba(255,255,255,0.5)", fontSize: 11, textAlign: "right", marginTop: 4 },
-  composer: {
-    flexDirection: "row",
-    alignItems: "flex-end",
-    padding: 8,
-    gap: 8,
-    backgroundColor: theme.bgHeader,
-  },
-  attachBtn: {
-    width: 40,
-    height: 44,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  attachBtnText: { fontSize: 20 },
-  composerInput: {
-    flex: 1,
-    backgroundColor: theme.bgInput,
-    color: theme.textPrimary,
-    borderRadius: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    fontSize: 16,
-    maxHeight: 120,
-  },
-  sendBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: theme.accent,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  sendBtnDisabled: { opacity: 0.5 },
-  sendBtnText: { color: theme.bgApp, fontSize: 18 },
   empty: { flex: 1, alignItems: "center", justifyContent: "center", padding: 32 },
   emptyText: { color: theme.textSecondary, textAlign: "center", lineHeight: 22 },
   modalOverlay: {
@@ -503,7 +470,13 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     padding: 24,
   },
-  modal: { backgroundColor: theme.bgHeader, borderRadius: 12, padding: 20 },
+  modal: {
+    backgroundColor: theme.bgHeader,
+    borderRadius: theme.radius.lg,
+    padding: theme.spacing.xl,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: theme.border,
+  },
   modalTitle: { color: theme.textPrimary, fontSize: 18, fontWeight: "500", marginBottom: 8 },
   modalText: { color: theme.textSecondary, lineHeight: 20, marginBottom: 16 },
   safetyNumber: {

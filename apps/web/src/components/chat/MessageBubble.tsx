@@ -7,18 +7,39 @@ import { MediaAttachment } from "./MediaAttachment";
 export function MessageBubble({
   message,
   authToken,
+  groupedWithPrev = false,
+  groupedWithNext = false,
 }: {
   message: DisplayMessage;
   authToken?: string;
+  groupedWithPrev?: boolean;
+  groupedWithNext?: boolean;
 }) {
   const isOut = message.from === "me";
   const failed = message.status === "decrypt_failed" || message.status === "failed";
 
+  const rowClass = [
+    "vc-bubble-row",
+    isOut ? "vc-bubble-row--out" : "vc-bubble-row--in",
+    groupedWithPrev ? "vc-bubble-row--grouped" : "",
+    !groupedWithNext ? "vc-bubble-row--group-end" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  const bubbleClass = [
+    "vc-bubble",
+    isOut ? "vc-bubble--out" : "vc-bubble--in",
+    failed ? "vc-bubble--failed" : "",
+    !groupedWithPrev ? "vc-bubble--group-start" : "vc-bubble--group-mid",
+    !groupedWithNext ? "vc-bubble--group-end" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+
   return (
-    <div className={`vc-bubble-row vc-bubble-row--${isOut ? "out" : "in"}`}>
-      <div
-        className={`vc-bubble vc-bubble--${isOut ? "out" : "in"}${failed ? " vc-bubble--failed" : ""}`}
-      >
+    <div className={rowClass}>
+      <div className={bubbleClass}>
         {message.status === "decrypt_failed" ? (
           <span>🔒 Unable to decrypt this message</span>
         ) : (
@@ -36,11 +57,11 @@ export function MessageBubble({
             {message.content.type === "media" && message.content.media && !authToken && (
               <span>🔒 Encrypted attachment</span>
             )}
-            {message.content.text && <span>{message.content.text}</span>}
+            {message.content.text && <span className="vc-bubble__text">{message.content.text}</span>}
           </>
         )}
         <div className="vc-bubble__meta">
-          <span className="vc-bubble__lock" title="End-to-end encrypted">
+          <span className="vc-bubble__lock" title="End-to-end encrypted" aria-hidden>
             🔒
           </span>
           <span className="vc-bubble__time">{formatMessageTime(message.time)}</span>

@@ -7,6 +7,7 @@ import type {
   CreateChannelRequest,
   PaginationOptions,
   SendChannelMessageRequest,
+  UpdateChannelRequest,
   VoicePresenceResponse,
 } from "@vaultchat/protocol";
 import { getClientConfig } from "./config.js";
@@ -78,6 +79,27 @@ export async function createChannelCategory(
   return parseApiResponse(res);
 }
 
+export async function updateCommunityChannel(
+  token: string,
+  channelId: string,
+  body: UpdateChannelRequest
+): Promise<ChannelInfo> {
+  const res = await clientFetch(apiUrl(`/api/v1/channels/${channelId}`), {
+    method: "PATCH",
+    headers: authHeaders(token),
+    body: JSON.stringify(body),
+  });
+  return parseApiResponse(res);
+}
+
+export async function deleteCommunityChannel(token: string, channelId: string): Promise<void> {
+  const res = await clientFetch(apiUrl(`/api/v1/channels/${channelId}`), {
+    method: "DELETE",
+    headers: authHeaders(token),
+  });
+  await parseApiResponse(res);
+}
+
 export async function fetchChannelMessages(
   token: string,
   channelId: string,
@@ -133,6 +155,47 @@ export async function fetchVoicePresence(
     headers: authHeaders(token),
   });
   return parseApiResponse(res);
+}
+
+export async function fetchChannelMembers(
+  token: string,
+  channelId: string
+): Promise<import("@vaultchat/protocol").ChannelMemberInfo[]> {
+  const res = await clientFetch(apiUrl(`/api/v1/channels/${channelId}/members`), {
+    headers: authHeaders(token),
+  });
+  const data = await parseApiResponse<{ members: import("@vaultchat/protocol").ChannelMemberInfo[] }>(
+    res
+  );
+  return data.members;
+}
+
+export async function addChannelMember(
+  token: string,
+  channelId: string,
+  body: import("@vaultchat/protocol").AddChannelMemberRequest
+): Promise<import("@vaultchat/protocol").ChannelMemberInfo> {
+  const res = await clientFetch(apiUrl(`/api/v1/channels/${channelId}/members`), {
+    method: "POST",
+    headers: authHeaders(token),
+    body: JSON.stringify(body),
+  });
+  const data = await parseApiResponse<{ member: import("@vaultchat/protocol").ChannelMemberInfo }>(
+    res
+  );
+  return data.member;
+}
+
+export async function removeChannelMember(
+  token: string,
+  channelId: string,
+  userId: string
+): Promise<void> {
+  const res = await clientFetch(apiUrl(`/api/v1/channels/${channelId}/members/${userId}`), {
+    method: "DELETE",
+    headers: authHeaders(token),
+  });
+  await parseApiResponse(res);
 }
 
 export type { ChannelType };

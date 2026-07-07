@@ -1,7 +1,6 @@
 import { VaultDevice } from "@vaultchat/crypto";
 import {
   DEFAULT_PHONE_COUNTRY,
-  friendlyError,
   hasFieldErrors,
   mergeAndUploadAccountBackup,
   mapRegistrationError,
@@ -10,29 +9,56 @@ import {
   registerOnServer,
   saveSession,
   uploadPreKeys,
+  validateEmail,
+  validatePassword,
+  validatePhone,
   validateRegistrationFields,
+  validateUsername,
   type RegistrationFieldErrors,
   type RegistrationFields,
 } from "@vaultchat/client";
 import { Redirect, useRouter } from "expo-router";
-import { useState } from "react";
-import {
-  ActivityIndicator,
-  KeyboardAvoidingView,
-  Platform,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
-} from "react-native";
-import { CountryPicker } from "@/components/CountryPicker";
+import { useCallback, useMemo, useState } from "react";
+import { Platform, StyleSheet, Text, TouchableOpacity } from "react-native";
+import { PhoneField } from "@/components/PhoneField";
+import { AuthScreen } from "@/components/ui/AuthScreen";
+import { Button } from "@/components/ui/Button";
+import { Input } from "@/components/ui/Input";
 import { useApp, storage } from "@/context/AppContext";
 import { theme } from "@/theme";
 
-function fieldStyle(hasError: boolean) {
-  return [styles.input, hasError ? styles.inputError : null];
+type TouchedFields = Partial<Record<keyof RegistrationFields, boolean>>;
+
+function fieldError(
+  key: keyof RegistrationFields,
+  fields: RegistrationFields
+): string | undefined {
+  switch (key) {
+    case "username": {
+      const err = validateUsername(fields.username);
+      return err ?? undefined;
+    }
+    case "email": {
+      const err = validateEmail(fields.email);
+      return err ?? undefined;
+    }
+    case "password": {
+      const err = validatePassword(fields.password);
+      return err ?? undefined;
+    }
+    case "phoneNumber": {
+      const err = validatePhone(fields.phoneCountry, fields.phoneNumber);
+      return err ?? undefined;
+    }
+    default:
+      return undefined;
+  }
+}
+
+function isFieldValid(key: keyof RegistrationFields, fields: RegistrationFields): boolean {
+  const value = fields[key];
+  if (!value && key !== "phoneNumber") return false;
+  return !fieldError(key, fields);
 }
 
 export default function RegisterScreen() {
@@ -46,7 +72,32 @@ export default function RegisterScreen() {
     phoneNumber: "",
   });
   const [errors, setErrors] = useState<RegistrationFieldErrors>({});
+  const [touched, setTouched] = useState<TouchedFields>({});
   const [loading, setLoading] = useState(false);
+
+  const touch = useCallback((key: keyof RegistrationFields) => {
+    setTouched((prev) => ({ ...prev, [key]: true }));
+  }, []);
+
+  const showError = useCallback(
+    (key: keyof RegistrationFields) => {
+      if (!touched[key] && !errors[key]) return undefined;
+      return errors[key] ?? (touched[key] ? fieldError(key, fields) : undefined);
+    },
+    [touched, errors, fields]
+  );
+
+  const showValid = useCallback(
+    (key: keyof RegistrationFields) => touched[key] && isFieldValid(key, fields),
+    [touched, fields]
+  );
+
+  const passwordHint = useMemo(() => {
+    if (!fields.password || showValid("password")) return undefined;
+    const remaining = 8 - fields.password.length;
+    if (remaining > 0) return `${remaining} more character${remaining === 1 ? "" : "s"} needed`;
+    return undefined;
+  }, [fields.password, showValid]);
 
   if (session) {
     if (session.emailVerified === false) return <Redirect href="/verify-email" />;
@@ -54,17 +105,49 @@ export default function RegisterScreen() {
   }
 
   function updateField<K extends keyof RegistrationFields>(key: K, value: RegistrationFields[K]) {
-    setFields((prev) => ({ ...prev, [key]: value }));
+    setFields((prev) => {
+      const next = { ...prev, [key]: value };
+      setErrors((prevErrors) => {
+        const nextErrors = { ...prevErrors };
+        delete nextErrors[key];
+        delete nextErrors.form;
+        if (key === "phoneCountry" || key === "phoneNumber") delete nextErrors.phoneNumber;
+        return nextErrors;
+      });
+      return next;
+    });
+  }
+
+  function handleBlur(key: keyof RegistrationFields) {
+    touch(key);
+    const err = fieldError(key, fields);
+    if (key === "phoneCountry" || key === "phoneNumber") {
+      const phoneErr = fieldError("phoneNumber", fields);
+      setErrors((prev) => {
+        const next = { ...prev };
+        if (phoneErr) next.phoneNumber = phoneErr;
+        else delete next.phoneNumber;
+        return next;
+      });
+      return;
+    }
     setErrors((prev) => {
       const next = { ...prev };
-      delete next[key];
-      delete next.form;
-      if (key === "phoneCountry" || key === "phoneNumber") delete next.phoneNumber;
+      if (err) next[key] = err;
+      else delete next[key];
       return next;
     });
   }
 
   async function handleRegister() {
+    setTouched({
+      username: true,
+      email: true,
+      password: true,
+      phoneCountry: true,
+      phoneNumber: true,
+    });
+
     const validation = validateRegistrationFields(fields);
     if (hasFieldErrors(validation)) {
       setErrors(validation);
@@ -122,138 +205,101 @@ export default function RegisterScreen() {
   }
 
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
+    <AuthScreen
+      scroll
+      title="Create account"
+      subtitle="Encryption keys are generated on this device only — never on our servers."
+      footer={
+        <TouchableOpacity onPress={() => router.push("/login")} disabled={loading}>
+          <Text style={styles.footerText}>
+            Already have an account? <Text style={styles.footerLink}>Sign in</Text>
+          </Text>
+        </TouchableOpacity>
+      }
     >
-      <ScrollView contentContainerStyle={styles.inner} keyboardShouldPersistTaps="handled">
-        <Text style={styles.logo}>🔒</Text>
-        <Text style={styles.title}>VaultChat</Text>
-        <Text style={styles.subtitle}>
-          Create your encrypted account. Keys are generated on this device only.
-        </Text>
+      <Input
+        placeholder="Username"
+        value={fields.username}
+        onChangeText={(v) => updateField("username", v)}
+        onBlur={() => handleBlur("username")}
+        autoCapitalize="none"
+        autoCorrect={false}
+        maxLength={32}
+        editable={!loading}
+        error={showError("username")}
+        valid={showValid("username")}
+      />
 
-        <View style={styles.field}>
-          <TextInput
-            style={fieldStyle(!!errors.username)}
-            placeholder="Username"
-            placeholderTextColor={theme.textMuted}
-            value={fields.username}
-            onChangeText={(v) => updateField("username", v)}
-            autoCapitalize="none"
-            autoCorrect={false}
-            maxLength={32}
-            editable={!loading}
-          />
-          {errors.username && <Text style={styles.fieldError}>{errors.username}</Text>}
-        </View>
+      <Input
+        placeholder="Email"
+        value={fields.email}
+        onChangeText={(v) => updateField("email", v)}
+        onBlur={() => handleBlur("email")}
+        autoCapitalize="none"
+        keyboardType="email-address"
+        autoComplete="email"
+        textContentType="emailAddress"
+        editable={!loading}
+        error={showError("email")}
+        valid={showValid("email")}
+      />
 
-        <View style={styles.field}>
-          <TextInput
-            style={fieldStyle(!!errors.email)}
-            placeholder="Email"
-            placeholderTextColor={theme.textMuted}
-            value={fields.email}
-            onChangeText={(v) => updateField("email", v)}
-            autoCapitalize="none"
-            keyboardType="email-address"
-            editable={!loading}
-          />
-          {errors.email && <Text style={styles.fieldError}>{errors.email}</Text>}
-        </View>
+      <Input
+        placeholder="Password (8+ characters)"
+        value={fields.password}
+        onChangeText={(v) => updateField("password", v)}
+        onBlur={() => handleBlur("password")}
+        secureTextEntry
+        autoComplete="new-password"
+        textContentType="newPassword"
+        editable={!loading}
+        error={showError("password")}
+        valid={showValid("password")}
+        hint={passwordHint}
+      />
 
-        <View style={styles.field}>
-          <TextInput
-            style={fieldStyle(!!errors.password)}
-            placeholder="Password (8+ characters)"
-            placeholderTextColor={theme.textMuted}
-            value={fields.password}
-            onChangeText={(v) => updateField("password", v)}
-            secureTextEntry
-            editable={!loading}
-          />
-          {errors.password && <Text style={styles.fieldError}>{errors.password}</Text>}
-        </View>
+      <PhoneField
+        country={fields.phoneCountry}
+        phoneNumber={fields.phoneNumber}
+        onCountryChange={(iso) => {
+          updateField("phoneCountry", iso);
+          if (touched.phoneNumber) {
+            const phoneErr = validatePhone(iso, fields.phoneNumber);
+            setErrors((prev) => {
+              const next = { ...prev };
+              if (phoneErr) next.phoneNumber = phoneErr;
+              else delete next.phoneNumber;
+              return next;
+            });
+          }
+        }}
+        onPhoneChange={(v) => updateField("phoneNumber", v)}
+        onBlur={() => handleBlur("phoneNumber")}
+        error={showError("phoneNumber")}
+        valid={showValid("phoneNumber")}
+        disabled={loading}
+      />
 
-        <View style={styles.field}>
-          <View style={styles.phoneRow}>
-            <CountryPicker
-              value={fields.phoneCountry}
-              onChange={(iso) => updateField("phoneCountry", iso)}
-              disabled={loading}
-              hasError={!!errors.phoneNumber}
-            />
-            <TextInput
-              style={[styles.input, styles.phoneInput, errors.phoneNumber ? styles.inputError : null]}
-              placeholder="Phone number"
-              placeholderTextColor={theme.textMuted}
-              value={fields.phoneNumber}
-              onChangeText={(v) => updateField("phoneNumber", v)}
-              keyboardType="phone-pad"
-              editable={!loading}
-            />
-          </View>
-          {errors.phoneNumber && <Text style={styles.fieldError}>{errors.phoneNumber}</Text>}
-        </View>
+      {errors.form ? <Text style={styles.formError}>{errors.form}</Text> : null}
 
-        {errors.form && <Text style={styles.fieldError}>{errors.form}</Text>}
-
-        <TouchableOpacity
-          style={[styles.btn, loading && styles.btnDisabled]}
-          onPress={() => void handleRegister()}
-          disabled={loading}
-        >
-          {loading ? (
-            <ActivityIndicator color={theme.bgApp} />
-          ) : (
-            <Text style={styles.btnText}>Create account</Text>
-          )}
-        </TouchableOpacity>
-
-        <TouchableOpacity style={styles.linkBtn} onPress={() => router.push("/login")} disabled={loading}>
-          <Text style={styles.linkText}>Already have an account? Sign in</Text>
-        </TouchableOpacity>
-      </ScrollView>
-    </KeyboardAvoidingView>
+      <Button
+        title="Create account"
+        onPress={() => void handleRegister()}
+        loading={loading}
+        style={styles.submit}
+      />
+    </AuthScreen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.bgApp },
-  inner: { flexGrow: 1, justifyContent: "center", padding: 24, alignItems: "center" },
-  logo: { fontSize: 64, marginBottom: 16 },
-  title: { color: theme.textPrimary, fontSize: 28, fontWeight: "300", marginBottom: 8 },
-  subtitle: {
-    color: theme.textSecondary,
+  submit: { marginTop: theme.spacing.sm },
+  formError: {
+    color: theme.danger,
+    fontSize: theme.fontSize.sm,
     textAlign: "center",
-    lineHeight: 22,
-    marginBottom: 24,
-    maxWidth: 300,
+    marginBottom: theme.spacing.sm,
   },
-  field: { width: "100%", maxWidth: 320, marginBottom: 8 },
-  input: {
-    width: "100%",
-    backgroundColor: theme.bgInput,
-    color: theme.textPrimary,
-    padding: 14,
-    borderRadius: 8,
-    fontSize: 16,
-  },
-  phoneRow: { flexDirection: "row", gap: 8, width: "100%" },
-  phoneInput: { flex: 1, minWidth: 0 },
-  inputError: { borderWidth: 1, borderColor: theme.danger },
-  fieldError: { color: theme.danger, fontSize: 13, marginTop: 4 },
-  btn: {
-    width: "100%",
-    maxWidth: 320,
-    backgroundColor: theme.accent,
-    padding: 14,
-    borderRadius: 8,
-    alignItems: "center",
-    marginTop: 8,
-  },
-  btnDisabled: { opacity: 0.7 },
-  btnText: { color: theme.bgApp, fontWeight: "600", fontSize: 16 },
-  linkBtn: { marginTop: 20 },
-  linkText: { color: theme.accent, fontSize: 14 },
+  footerText: { color: theme.textSecondary, fontSize: theme.fontSize.md },
+  footerLink: { color: theme.accent, fontWeight: "600" },
 });

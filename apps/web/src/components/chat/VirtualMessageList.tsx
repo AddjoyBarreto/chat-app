@@ -49,7 +49,7 @@ export function VirtualMessageList({
 
   if (items.length === 0) {
     return (
-      <div className="vc-empty" style={{ flex: 1 }}>
+      <div className="vc-empty vc-empty--conversation">
         <div className="vc-empty__icon">🔒</div>
         <p className="vc-empty__text">
           Messages are end-to-end encrypted. No one outside this chat can read them.
@@ -61,13 +61,14 @@ export function VirtualMessageList({
   return (
     <Virtuoso
       ref={virtuosoRef}
-      style={{ flex: 1 }}
+      className="vc-messages__virtuoso"
+      style={{ flex: 1, minHeight: 0 }}
       data={items}
       followOutput="smooth"
       atTopStateChange={(atTop) => {
         if (atTop && hasMore && onLoadOlder && !loadingOlder) onLoadOlder();
       }}
-      itemContent={(_index, item) => {
+      itemContent={(index, item) => {
         if (item.kind === "date") {
           return (
             <div className="vc-date-divider">
@@ -75,7 +76,20 @@ export function VirtualMessageList({
             </div>
           );
         }
-        return <MessageBubble message={item.message} authToken={authToken} />;
+        const prev = items[index - 1];
+        const next = items[index + 1];
+        const groupedWithPrev =
+          prev?.kind === "message" && prev.message.from === item.message.from;
+        const groupedWithNext =
+          next?.kind === "message" && next.message.from === item.message.from;
+        return (
+          <MessageBubble
+            message={item.message}
+            authToken={authToken}
+            groupedWithPrev={groupedWithPrev}
+            groupedWithNext={groupedWithNext}
+          />
+        );
       }}
       components={{
         Header: () =>

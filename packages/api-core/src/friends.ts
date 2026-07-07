@@ -20,6 +20,14 @@ import { and, desc, eq, or } from "drizzle-orm";
 import type { ApiContext } from "./context.js";
 import { requireVerifiedEmail } from "./auth-users.js";
 import { ApiCoreError } from "./errors.js";
+import { MESSAGE_CHANNEL_PREFIX } from "./redis.js";
+
+async function notifyFriendsChanged(ctx: ApiContext, userId: string): Promise<void> {
+  await ctx.redis.publish(
+    `${MESSAGE_CHANNEL_PREFIX}${userId}`,
+    JSON.stringify({ type: "friends_changed" })
+  );
+}
 
 export async function areFriends(
   ctx: ApiContext,
@@ -75,6 +83,14 @@ export async function assertCanDm(
       );
     }
   }
+}
+
+export async function listFriendIds(ctx: ApiContext, userId: string): Promise<string[]> {
+  const rows = await ctx.db
+    .select({ friendId: friendships.friendId })
+    .from(friendships)
+    .where(eq(friendships.userId, userId));
+  return rows.map((r) => r.friendId);
 }
 
 export async function listFriends(
@@ -293,6 +309,8 @@ export async function acceptFriendRequest(
     })
   );
 
+  await notifyFriendsChanged(ctx, userId);
+
   return friend;
 }
 
@@ -312,6 +330,8 @@ export async function rejectFriendRequest(
     .update(friendRequests)
     .set({ status: "rejected" })
     .where(eq(friendRequests.id, requestId));
+
+  await notifyFriendsChanged(ctx, userId);
 
   return { ok: true };
 }

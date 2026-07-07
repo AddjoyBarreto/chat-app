@@ -10,6 +10,7 @@ import {
   reshareGroupKey,
   saveGroupKey,
   sendGroupContentMessage,
+  shareGroupKeyWithMember,
 } from "@vaultchat/client";
 import type { GroupMessageEnvelope, MessageContent } from "@vaultchat/protocol";
 import type { GroupDisplayMessage } from "@/components/chat/GroupConversationView";
@@ -86,6 +87,38 @@ export async function sendGroupMediaMessage(
   messageType: "image" | "video"
 ) {
   return sendGroupContentMessage(storage, userId, token, groupId, content, messageType);
+}
+
+export async function ensureCommunityEncryption(
+  token: string,
+  device: VaultDevice,
+  userId: string,
+  groupId: string
+): Promise<{ hasKey: boolean; recovered: boolean }> {
+  const existing = await loadGroupCipher(storage, userId, groupId);
+  if (existing) return { hasKey: true, recovered: false };
+
+  const members = await fetchGroupMembers(token, groupId);
+  const me = members.find((m) => m.userId === userId);
+  if (!me || me.role !== "admin") return { hasKey: false, recovered: false };
+
+  const { messages } = await fetchGroupMessages(token, groupId, { limit: 1 });
+  if (messages.length > 0) return { hasKey: false, recovered: false };
+
+  const { keyBase64 } = await GroupCipher.generate();
+  await saveGroupKey(storage, userId, groupId, keyBase64);
+  await distributeGroupKey(storage, token, device, userId, groupId, keyBase64);
+  return { hasKey: true, recovered: true };
+}
+
+export async function shareGroupKeyWithMemberForCommunity(
+  token: string,
+  device: VaultDevice,
+  userId: string,
+  groupId: string,
+  targetUserId: string
+) {
+  return shareGroupKeyWithMember(storage, token, device, userId, groupId, targetUserId);
 }
 
 export async function adminReshareGroupKey(

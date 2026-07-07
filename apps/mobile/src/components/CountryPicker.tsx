@@ -1,5 +1,6 @@
 import {
   formatCountryOption,
+  getCountryDialCode,
   getPhoneCountry,
   PHONE_COUNTRIES,
   type PhoneCountry,
@@ -21,12 +22,20 @@ interface CountryPickerProps {
   onChange: (iso: string) => void;
   disabled?: boolean;
   hasError?: boolean;
+  compact?: boolean;
 }
 
-export function CountryPicker({ value, onChange, disabled, hasError }: CountryPickerProps) {
+export function CountryPicker({
+  value,
+  onChange,
+  disabled,
+  hasError,
+  compact = false,
+}: CountryPickerProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const selected = getPhoneCountry(value);
+  const dialCode = getCountryDialCode(value);
 
   const filtered = PHONE_COUNTRIES.filter((country) => {
     const q = query.trim().toLowerCase();
@@ -47,18 +56,25 @@ export function CountryPicker({ value, onChange, disabled, hasError }: CountryPi
   return (
     <>
       <Pressable
-        style={[styles.trigger, hasError && styles.triggerError, disabled && styles.disabled]}
+        style={[
+          compact ? styles.triggerCompact : styles.trigger,
+          hasError && styles.triggerError,
+          disabled && styles.disabled,
+        ]}
         onPress={() => !disabled && setOpen(true)}
         disabled={disabled}
+        accessibilityLabel="Select country"
       >
-        <Text style={styles.triggerText} numberOfLines={1}>
-          {selected ? formatCountryOption(selected) : "Country"}
+        <Text style={compact ? styles.dialText : styles.triggerText} numberOfLines={1}>
+          {compact ? dialCode : selected ? formatCountryOption(selected) : "Country"}
         </Text>
+        {compact ? <Text style={styles.chevron}>▾</Text> : null}
       </Pressable>
 
       <Modal visible={open} animationType="slide" transparent onRequestClose={() => setOpen(false)}>
         <View style={styles.overlay}>
           <View style={styles.sheet}>
+            <View style={styles.handle} />
             <Text style={styles.title}>Select country</Text>
             <TextInput
               style={styles.search}
@@ -92,37 +108,73 @@ const styles = StyleSheet.create({
   trigger: {
     flex: 1,
     backgroundColor: theme.bgInput,
-    borderRadius: 8,
-    paddingHorizontal: 10,
+    borderRadius: theme.radius.md,
+    paddingHorizontal: theme.spacing.md,
     paddingVertical: 14,
     justifyContent: "center",
+    borderWidth: 1,
+    borderColor: theme.border,
   },
-  triggerError: { borderWidth: 1, borderColor: theme.danger },
+  triggerCompact: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+    width: 88,
+    backgroundColor: theme.bgInput,
+    borderRadius: theme.radius.md,
+    paddingHorizontal: theme.spacing.sm,
+    paddingVertical: 14,
+    borderWidth: 1,
+    borderColor: theme.border,
+  },
+  triggerError: { borderColor: theme.danger },
   disabled: { opacity: 0.7 },
-  triggerText: { color: theme.textPrimary, fontSize: 14 },
+  triggerText: { color: theme.textPrimary, fontSize: theme.fontSize.md },
+  dialText: { color: theme.textPrimary, fontSize: theme.fontSize.lg, fontWeight: "600" },
+  chevron: { color: theme.textMuted, fontSize: 12, marginTop: 2 },
   overlay: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.5)",
+    backgroundColor: theme.overlay,
     justifyContent: "flex-end",
   },
   sheet: {
-    backgroundColor: theme.bgApp,
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
+    backgroundColor: theme.bgPanel,
+    borderTopLeftRadius: theme.radius.lg,
+    borderTopRightRadius: theme.radius.lg,
     maxHeight: "70%",
-    padding: 16,
+    padding: theme.spacing.lg,
   },
-  title: { color: theme.textPrimary, fontSize: 18, fontWeight: "600", marginBottom: 12 },
+  handle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: theme.border,
+    alignSelf: "center",
+    marginBottom: theme.spacing.md,
+  },
+  title: {
+    color: theme.textPrimary,
+    fontSize: theme.fontSize.xl,
+    fontWeight: "600",
+    marginBottom: theme.spacing.md,
+  },
   search: {
     backgroundColor: theme.bgInput,
     color: theme.textPrimary,
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 12,
-    fontSize: 16,
+    borderRadius: theme.radius.md,
+    padding: theme.spacing.md,
+    marginBottom: theme.spacing.md,
+    fontSize: theme.fontSize.lg,
+    borderWidth: 1,
+    borderColor: theme.border,
   },
-  option: { paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.bgInput },
-  optionText: { color: theme.textPrimary, fontSize: 16 },
-  cancelBtn: { alignItems: "center", paddingVertical: 14, marginTop: 8 },
-  cancelText: { color: theme.accent, fontSize: 16, fontWeight: "600" },
+  option: {
+    paddingVertical: theme.spacing.md,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: theme.border,
+  },
+  optionText: { color: theme.textPrimary, fontSize: theme.fontSize.lg },
+  cancelBtn: { alignItems: "center", paddingVertical: theme.spacing.lg, marginTop: theme.spacing.sm },
+  cancelText: { color: theme.accent, fontSize: theme.fontSize.lg, fontWeight: "600" },
 });

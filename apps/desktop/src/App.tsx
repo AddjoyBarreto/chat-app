@@ -24,6 +24,7 @@ export function App() {
 
   const callsRef = useRef<ReturnType<typeof useCallSession> | null>(null);
   const friendsRef = useRef<ReturnType<typeof useFriends> | null>(null);
+  const groupServerEventRef = useRef<((event: import("@vaultchat/protocol").WsServerEvent) => void) | undefined>();
 
   const chat = useVaultChat({
     deviceName: "Desktop",
@@ -31,11 +32,14 @@ export function App() {
     onServerEvent: (event) => {
       callsRef.current?.handleServerEvent(event);
       friendsRef.current?.handleServerEvent(event);
+      groupServerEventRef.current?.(event);
     },
   });
 
   const friends = useFriends({
     token: chat.session?.token ?? null,
+    isConnected: chat.isConnected,
+    send: chat.send,
     onToast: showToast,
   });
 
@@ -98,6 +102,7 @@ export function App() {
         friends={friends}
         calls={calls}
         onOpenSettings={() => setSettingsOpen(true)}
+        groupServerEventRef={groupServerEventRef}
       />
 
       {calls.incomingCall && (
@@ -127,6 +132,7 @@ export function App() {
         onClose={() => setSettingsOpen(false)}
         token={chat.session.token}
         username={chat.session.username}
+        currentDeviceId={chat.session.deviceId}
         onLogout={() => {
           setSettingsOpen(false);
           void chat.logout();

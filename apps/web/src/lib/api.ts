@@ -8,10 +8,12 @@ import {
   type ApiContext,
 } from "@vaultchat/api-core";
 
-let ctx: ApiContext | null = null;
+const globalForApi = globalThis as unknown as {
+  vaultchatApiCtx?: ApiContext;
+};
 
 export function getApiContext(): ApiContext {
-  if (!ctx) {
+  if (!globalForApi.vaultchatApiCtx) {
     const databaseUrl = process.env.DATABASE_URL;
     const redisUrl = process.env.REDIS_URL;
     const jwtSecret = process.env.JWT_SECRET;
@@ -20,7 +22,7 @@ export function getApiContext(): ApiContext {
       throw new Error("Missing DATABASE_URL, REDIS_URL, or JWT_SECRET");
     }
 
-    ctx = createApiContext({ databaseUrl, redisUrl, jwtSecret });
+    globalForApi.vaultchatApiCtx = createApiContext({ databaseUrl, redisUrl, jwtSecret });
 
     setMediaConfig({
       r2AccountId: process.env.R2_ACCOUNT_ID,
@@ -55,7 +57,7 @@ export function getApiContext(): ApiContext {
         "http://localhost:3000",
     });
   }
-  return ctx;
+  return globalForApi.vaultchatApiCtx;
 }
 
 export { toApiError, verifyToken };

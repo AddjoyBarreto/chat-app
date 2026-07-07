@@ -42,24 +42,22 @@ export async function publishChannelMessage(
   channelId: string,
   envelope: ChannelMessageEnvelope
 ): Promise<void> {
-  const { channels, groupMembers } = await import("@vaultchat/db");
+  const { channels } = await import("@vaultchat/db");
   const { eq } = await import("drizzle-orm");
+  const { getChannelAccessUserIds } = await import("./channels.js");
 
   const [channel] = await ctx.db
-    .select({ communityId: channels.communityId })
+    .select()
     .from(channels)
     .where(eq(channels.id, channelId))
     .limit(1);
   if (!channel) return;
 
-  const members = await ctx.db
-    .select({ userId: groupMembers.userId })
-    .from(groupMembers)
-    .where(eq(groupMembers.groupId, channel.communityId));
+  const userIds = await getChannelAccessUserIds(ctx, channel);
 
   const payload = JSON.stringify({ type: "channel_message", envelope });
-  for (const m of members) {
-    await ctx.redis.publish(`${MESSAGE_CHANNEL_PREFIX}${m.userId}`, payload);
+  for (const userId of userIds) {
+    await ctx.redis.publish(`${MESSAGE_CHANNEL_PREFIX}${userId}`, payload);
   }
   await ctx.redis.publish(`${CHANNEL_CHANNEL_PREFIX}${channelId}`, payload);
 }

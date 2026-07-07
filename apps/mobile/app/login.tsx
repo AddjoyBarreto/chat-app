@@ -10,16 +10,10 @@ import {
 } from "@vaultchat/client";
 import { Redirect, useRouter } from "expo-router";
 import { useState } from "react";
-import {
-  ActivityIndicator,
-  KeyboardAvoidingView,
-  Platform,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
-} from "react-native";
+import { Platform, StyleSheet, Text, TouchableOpacity } from "react-native";
+import { AuthScreen } from "@/components/ui/AuthScreen";
+import { Button } from "@/components/ui/Button";
+import { Input } from "@/components/ui/Input";
 import { useApp, storage } from "@/context/AppContext";
 import { theme } from "@/theme";
 
@@ -93,77 +87,49 @@ export default function LoginScreen() {
   }
 
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
-    >
-      <View style={styles.inner}>
-        <Text style={styles.logo}>🔒</Text>
-        <Text style={styles.title}>Sign in</Text>
-        <Text style={styles.subtitle}>Welcome back to VaultChat.</Text>
-
-        <TextInput
-          style={[styles.input, errors.identifier ? styles.inputError : null]}
-          placeholder="Username or email"
-          placeholderTextColor={theme.textMuted}
-          autoCapitalize="none"
-          autoCorrect={false}
-          value={identifier}
-          onChangeText={setIdentifier}
-        />
-        {errors.identifier ? <Text style={styles.errorText}>{errors.identifier}</Text> : null}
-
-        <TextInput
-          style={[styles.input, errors.password ? styles.inputError : null]}
-          placeholder="Password"
-          placeholderTextColor={theme.textMuted}
-          secureTextEntry
-          value={password}
-          onChangeText={setPassword}
-        />
-        {errors.password ? <Text style={styles.errorText}>{errors.password}</Text> : null}
-        {errors.form ? <Text style={styles.errorText}>{errors.form}</Text> : null}
-
-        <TouchableOpacity
-          style={[styles.button, loading && styles.buttonDisabled]}
-          onPress={() => void handleLogin()}
-          disabled={loading}
-        >
-          {loading ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <Text style={styles.buttonText}>Sign in</Text>
-          )}
+    <AuthScreen
+      title="Sign in"
+      subtitle="Welcome back. Your messages stay encrypted on this device."
+      footer={
+        <TouchableOpacity onPress={() => router.push("/register")} disabled={loading}>
+          <Text style={styles.footerText}>
+            No account? <Text style={styles.footerLink}>Create one</Text>
+          </Text>
         </TouchableOpacity>
-      </View>
-    </KeyboardAvoidingView>
+      }
+    >
+      <Input
+        placeholder="Username or email"
+        autoCapitalize="none"
+        autoCorrect={false}
+        value={identifier}
+        onChangeText={setIdentifier}
+        error={errors.identifier}
+      />
+
+      <Input
+        placeholder="Password"
+        secureTextEntry
+        value={password}
+        onChangeText={setPassword}
+        error={errors.password}
+      />
+
+      {errors.form ? <Text style={styles.formError}>{errors.form}</Text> : null}
+
+      <Button title="Sign in" onPress={() => void handleLogin()} loading={loading} style={styles.submit} />
+    </AuthScreen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.bg },
-  inner: { flex: 1, justifyContent: "center", padding: 24 },
-  logo: { fontSize: 48, textAlign: "center", marginBottom: 8 },
-  title: { fontSize: 28, fontWeight: "700", color: theme.text, textAlign: "center" },
-  subtitle: { fontSize: 15, color: theme.textMuted, textAlign: "center", marginBottom: 32 },
-  input: {
-    backgroundColor: theme.surface,
-    borderRadius: 12,
-    padding: 14,
-    color: theme.text,
-    marginBottom: 8,
-    borderWidth: 1,
-    borderColor: theme.border,
+  submit: { marginTop: theme.spacing.sm },
+  formError: {
+    color: theme.danger,
+    fontSize: theme.fontSize.sm,
+    textAlign: "center",
+    marginBottom: theme.spacing.sm,
   },
-  inputError: { borderColor: theme.danger },
-  errorText: { color: theme.danger, fontSize: 13, marginBottom: 8 },
-  button: {
-    backgroundColor: theme.primary,
-    borderRadius: 12,
-    padding: 16,
-    alignItems: "center",
-    marginTop: 8,
-  },
-  buttonDisabled: { opacity: 0.6 },
-  buttonText: { color: "#fff", fontWeight: "600", fontSize: 16 },
+  footerText: { color: theme.textSecondary, fontSize: theme.fontSize.md },
+  footerLink: { color: theme.accent, fontWeight: "600" },
 });

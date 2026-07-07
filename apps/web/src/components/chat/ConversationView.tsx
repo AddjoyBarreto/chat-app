@@ -6,6 +6,7 @@ import type { DisplayMessage } from "@/lib/messages";
 
 interface ConversationViewProps {
   peerUsername: string;
+  peerPresenceLabel?: string;
   messages: DisplayMessage[];
   draft: string;
   onDraftChange: (v: string) => void;
@@ -26,6 +27,7 @@ interface ConversationViewProps {
 
 export function ConversationView({
   peerUsername,
+  peerPresenceLabel,
   messages,
   draft,
   onDraftChange,
@@ -44,6 +46,7 @@ export function ConversationView({
   hasMore,
 }: ConversationViewProps) {
   const fileRef = useRef<HTMLInputElement>(null);
+  const isOnline = peerPresenceLabel?.toLowerCase() === "online";
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -59,24 +62,20 @@ export function ConversationView({
   }
 
   return (
-    <>
-      <header className="vc-header">
+    <div className="vc-conversation">
+      <header className="vc-header vc-header--conversation">
         <button type="button" className="vc-header__back" onClick={onBack} aria-label="Back">
           ‹
         </button>
         <div className="vc-header__avatar">{peerUsername[0]}</div>
         <div className="vc-header__info">
-          <div className="vc-header__title">@{peerUsername}</div>
+          <div className="vc-header__title">{peerUsername}</div>
           <div
-            className={`vc-header__subtitle${
-              connectionState === "connected" ? " vc-header__subtitle--online" : ""
-            }`}
+            className={`vc-header__subtitle${isOnline ? " vc-header__subtitle--online" : ""}`}
           >
-            {connectionState === "connected"
-              ? "🔒 End-to-end encrypted"
-              : connectionState === "reconnecting"
-                ? "Reconnecting…"
-                : "Connecting…"}
+            {peerPresenceLabel && <span>{peerPresenceLabel}</span>}
+            {peerPresenceLabel && <span className="vc-header__subtitle-sep" aria-hidden>·</span>}
+            <span className="vc-header__subtitle-encrypted">End-to-end encrypted</span>
           </div>
         </div>
         <div className="vc-header__actions">
@@ -116,17 +115,19 @@ export function ConversationView({
         </div>
       </header>
 
-      <div className="vc-messages">
-        <VirtualMessageList
-          messages={messages}
-          authToken={authToken}
-          onLoadOlder={onLoadOlder}
-          loadingOlder={loadingOlder}
-          hasMore={hasMore}
-        />
+      <div className="vc-messages vc-messages--conversation">
+        <div className="vc-messages__inner">
+          <VirtualMessageList
+            messages={messages}
+            authToken={authToken}
+            onLoadOlder={onLoadOlder}
+            loadingOlder={loadingOlder}
+            hasMore={hasMore}
+          />
+        </div>
       </div>
 
-      <form className="vc-composer" onSubmit={handleSubmit}>
+      <form className="vc-composer vc-composer--conversation" onSubmit={handleSubmit}>
         <input
           ref={fileRef}
           type="file"
@@ -165,6 +166,6 @@ export function ConversationView({
           {sending ? <span className="vc-spinner" /> : "➤"}
         </button>
       </form>
-    </>
+    </div>
   );
 }

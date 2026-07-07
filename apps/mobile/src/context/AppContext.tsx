@@ -4,16 +4,16 @@ import {
   captureGroupKeyFromContent,
   clearSession,
   createGateway,
-  cacheDecryptedMessage,
   decryptEnvelope,
   fetchConversations,
   fetchInbox,
   fetchMe,
   friendlyError,
-  historyDecryptOptions,
-  loadDevice,
   loadSession,
+  MessageInbox,
   persistDevice,
+  previewText,
+  ReadStateManager,
   replenishPreKeysIfNeeded,
   saveSession,
   type ConnectionState,
@@ -22,6 +22,7 @@ import {
   type StoredSession,
 } from "@vaultchat/client";
 import type { ConversationPreview, MessageEnvelope, WsServerEvent } from "@vaultchat/protocol";
+import * as Notifications from "expo-notifications";
 import {
   createContext,
   useCallback,
@@ -52,6 +53,11 @@ interface AppContextValue {
   gatewaySend: (event: import("@vaultchat/protocol").WsClientEvent) => boolean;
   groupKeysVersion: number;
   replenishKeysIfNeeded: () => Promise<void>;
+  unreadByPeer: Record<string, number>;
+  chatUnreadCount: number;
+  previews: Record<string, string>;
+  setActivePeer: (peerId: string | null) => void;
+  markConversationRead: (peerId: string, messageAt: string) => void;
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
@@ -66,21 +72,115 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [initError, setInitError] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
   const [groupKeysVersion, setGroupKeysVersion] = useState(0);
+  const [unreadByPeer, setUnreadByPeer] = useState<Record<string, number>>({});
+  const [previews, setPreviews] = useState<Record<string, string>>({});
   const gatewayRef = useRef<GatewayHandle | null>(null);
   const deviceRef = useRef<VaultDevice | null>(null);
   const sessionRef = useRef<StoredSession | null>(null);
+  const inboxRef = useRef(new MessageInbox());
+  const readStateRef = useRef<ReadStateManager | null>(null);
+  const activePeerIdRef = useRef<string | null>(null);
   const onMessageHandlers = useRef(
     new Set<(display: DisplayMessage, envelope: MessageEnvelope) => void>()
   );
   const onServerEventHandlers = useRef(new Set<(e: WsServerEvent) => void>());
-  const processedEnvelopeIds = useRef(new Set<string>());
 
   deviceRef.current = device;
   sessionRef.current = session;
 
+  const chatUnreadCount = Object.values(unreadByPeer).reduce((sum, n) => sum + n, 0);
+
   const setSession = useCallback((s: StoredSession | null) => {
     setSessionState(s);
   }, []);
+
+  const clearUnread = useCallback((peerId: string) => {
+    setUnreadByPeer((prev) => {
+      if (!prev[peerId]) return prev;
+      const { [peerId]: _, ...rest } = prev;
+      return rest;
+    });
+  }, []);
+
+  const markConversationRead = useCallback(
+    (peerId: string, messageAt: string) => {
+      readStateRef.current?.markPeerRead(peerId, messageAt);
+      clearUnread(peerId);
+    },
+    [clearUnread]
+  );
+
+  const setActivePeer = useCallback((peerId: string | null) => {
+    activePeerIdRef.current = peerId;
+  }, []);
+
+  const ensureReadState = useCallback(async (sess: StoredSession) => {
+    if (readStateRef.current) return readStateRef.current;
+    const mgr = new ReadStateManager(storage, sess.userId, { token: sess.token });
+    await mgr.load();
+    readStateRef.current = mgr;
+    return mgr;
+  }, []);
+
+  const handleIncomingEnvelope = useCallback(
+    async (envelope: MessageEnvelope) => {
+      const dev = deviceRef.current;
+      const sess = sessionRef.current;
+      if (!dev || !sess) return;
+
+      if (inboxRef.current.hasProcessed(envelope.id)) return;
+      inboxRef.current.markProcessed(envelope.id);
+
+      const readState = await ensureReadState(sess);
+      const peerId = inboxRef.current.peerIdForEnvelope(envelope, sess.userId);
+
+      try {
+        const display = await decryptEnvelope(dev, envelope, sess.userId, {
+          storage,
+          userId: sess.userId,
+          myDeviceId: sess.deviceId,
+        });
+        await persistDevice(storage, dev, sess.userId);
+        if (await captureGroupKeyFromContent(storage, sess.userId, display.content)) {
+          setGroupKeysVersion((v) => v + 1);
+          return;
+        }
+        if (display.content.type === "group_key") return;
+
+        setPreviews((p) => ({ ...p, [peerId]: previewText(display) }));
+
+        const viewingPeer = activePeerIdRef.current === peerId;
+
+        if (display.status !== "decrypt_failed") {
+          for (const handler of onMessageHandlers.current) handler(display, envelope);
+        }
+
+        if (viewingPeer) {
+          readState.markPeerRead(peerId, envelope.createdAt);
+        } else if (
+          inboxRef.current.shouldIncrementUnread(envelope, sess.userId, readState, {
+            isViewingPeer: false,
+            decryptFailed: display.status === "decrypt_failed",
+          })
+        ) {
+          setUnreadByPeer((prev) => ({
+            ...prev,
+            [peerId]: (prev[peerId] ?? 0) + 1,
+          }));
+        }
+
+        try {
+          const { conversations: list } = await fetchConversations(sess.token);
+          setConversations(list);
+        } catch {
+          // non-fatal
+        }
+      } catch {
+        // ignore undecryptable frames
+      }
+    },
+    [ensureReadState]
+  );
 
   const refreshConversations = useCallback(async () => {
     if (!session) return;
@@ -101,10 +201,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
     gatewayRef.current?.close();
     gatewayRef.current = null;
     await clearSession(storage);
+    inboxRef.current.clearProcessed();
+    readStateRef.current = null;
+    activePeerIdRef.current = null;
     setSessionState(null);
     setDevice(null);
     setConversations([]);
+    setUnreadByPeer({});
+    setPreviews({});
     setInitError(null);
+    void Notifications.setBadgeCountAsync(0).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -126,6 +232,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
           const dev = await bootstrapDevice(storage, updated);
           setDevice(dev);
+          await ensureReadState(updated);
           const { conversations: list } = await fetchConversations(updated.token);
           setConversations(list);
           void setupPushNotifications(updated.token);
@@ -136,7 +243,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setReady(true);
       }
     })();
-  }, []);
+  }, [ensureReadState]);
+
+  useEffect(() => {
+    if (!session?.token || !session.emailVerified) {
+      readStateRef.current = null;
+      return;
+    }
+    void ensureReadState(session);
+  }, [session?.userId, session?.token, session?.emailVerified, ensureReadState]);
+
+  useEffect(() => {
+    void Notifications.setBadgeCountAsync(chatUnreadCount).catch(() => {});
+  }, [chatUnreadCount]);
 
   useEffect(() => {
     if (!session) {
@@ -150,59 +269,26 @@ export function AppProvider({ children }: { children: ReactNode }) {
       session.token,
       {
         onMessage: (envelope) => {
-          void (async () => {
-            const dev = deviceRef.current;
-            const sess = sessionRef.current;
-            if (!dev || !sess) return;
-            if (processedEnvelopeIds.current.has(envelope.id)) return;
-            processedEnvelopeIds.current.add(envelope.id);
-            try {
-              const display = await decryptEnvelope(dev, envelope, sess.userId, {
-                storage,
-                userId: sess.userId,
-                myDeviceId: sess.deviceId,
-              });
-              await persistDevice(storage, dev, sess.userId);
-              if (await captureGroupKeyFromContent(storage, sess.userId, display.content)) {
-                setGroupKeysVersion((v) => v + 1);
-              }
-              if (display.status !== "decrypt_failed") {
-                for (const handler of onMessageHandlers.current) handler(display, envelope);
-              }
-            } catch {
-              // ignore undecryptable frames
-            }
-          })();
+          void handleIncomingEnvelope(envelope);
         },
         onServerEvent: (event) => {
           for (const handler of onServerEventHandlers.current) handler(event);
         },
         onAuthOk: () => {
           void (async () => {
-            const dev = deviceRef.current;
             const sess = sessionRef.current;
-            if (!dev || !sess) return;
+            if (!sess) return;
+            const readState = await ensureReadState(sess);
             try {
               const { messages } = await fetchInbox(sess.token);
               for (const envelope of messages) {
-                if (processedEnvelopeIds.current.has(envelope.id)) continue;
-                processedEnvelopeIds.current.add(envelope.id);
-                try {
-                  const display = await decryptEnvelope(dev, envelope, sess.userId, {
-                    storage,
-                    userId: sess.userId,
-                    myDeviceId: sess.deviceId,
-                  });
-                  await persistDevice(storage, dev, sess.userId);
-                  if (await captureGroupKeyFromContent(storage, sess.userId, display.content)) {
-                    setGroupKeysVersion((v) => v + 1);
-                  }
-                  if (display.status !== "decrypt_failed") {
-                    for (const handler of onMessageHandlers.current) handler(display, envelope);
-                  }
-                } catch {
-                  // skip undecryptable
+                if (inboxRef.current.hasProcessed(envelope.id)) continue;
+                const peerId = inboxRef.current.peerIdForEnvelope(envelope, sess.userId);
+                if (readState.isPeerMessageRead(peerId, envelope.createdAt)) {
+                  inboxRef.current.markProcessed(envelope.id);
+                  continue;
                 }
+                await handleIncomingEnvelope(envelope);
               }
             } catch {
               // non-fatal catch-up
@@ -217,7 +303,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     );
 
     return () => gatewayRef.current?.close();
-  }, [session?.token]);
+  }, [session?.token, handleIncomingEnvelope, ensureReadState, logout]);
 
   useEffect(() => {
     if (session) void refreshConversations();
@@ -241,6 +327,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
         gatewaySend: (event) => gatewayRef.current?.send(event) ?? false,
         groupKeysVersion,
         replenishKeysIfNeeded,
+        unreadByPeer,
+        chatUnreadCount,
+        previews,
+        setActivePeer,
+        markConversationRead,
       }}
     >
       {children}

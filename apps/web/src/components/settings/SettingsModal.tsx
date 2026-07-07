@@ -6,6 +6,10 @@ import {
   fetchPrivacySettings,
   unblockUser,
   updatePrivacySettings,
+  describeDevice,
+  getDeviceIcon,
+  getDeviceTitle,
+  inferDeviceKind,
   type DmPolicy,
 } from "@vaultchat/client";
 import type { BlockInfo, ListDevicesResponse, MeResponse, PrivacySettingsResponse } from "@vaultchat/protocol";
@@ -28,6 +32,7 @@ export interface SettingsModalProps {
   onClose: () => void;
   token: string;
   username: string;
+  currentDeviceId: number;
   onLogout: () => void;
   onShowToast?: (message: string, type?: "info" | "error") => void;
 }
@@ -49,6 +54,7 @@ export function SettingsModal({
   onClose,
   token,
   username,
+  currentDeviceId,
   onLogout,
   onShowToast,
 }: SettingsModalProps) {
@@ -225,7 +231,7 @@ export function SettingsModal({
                 <AppearanceSection theme={theme} onThemeChange={handleThemeChange} />
               )}
               {section === "devices" && (
-                <DevicesSection devices={devices} currentUsername={displayName} />
+                <DevicesSection devices={devices} currentDeviceId={currentDeviceId} />
               )}
             </>
           )}
@@ -422,10 +428,10 @@ function AppearanceSection({
 
 function DevicesSection({
   devices,
-  currentUsername,
+  currentDeviceId,
 }: {
   devices: ListDevicesResponse["devices"];
-  currentUsername: string;
+  currentDeviceId: number;
 }) {
   return (
     <div className="vc-settings-panel">
@@ -436,24 +442,40 @@ function DevicesSection({
       </p>
 
       <div className="vc-settings-card">
-        <h3 className="vc-settings-card__title">Logged-in devices</h3>
+        <h3 className="vc-settings-card__title">Linked devices</h3>
         {devices.length === 0 ? (
           <p className="vc-settings-empty-inline">No devices found.</p>
         ) : (
           <ul className="vc-settings-list">
-            {devices.map((d) => (
-              <li key={d.deviceId} className="vc-settings-list__item vc-settings-list__item--stacked">
-                <div>
-                  <strong>{d.deviceName ?? `Device ${d.deviceId}`}</strong>
-                  <div className="vc-settings-list__meta">Device ID {d.deviceId}</div>
-                </div>
-                <span className="vc-settings-badge vc-settings-badge--ok">Active</span>
-              </li>
-            ))}
+            {devices.map((d) => {
+              const kind = inferDeviceKind(d.deviceName);
+              const isCurrent = d.deviceId === currentDeviceId;
+              return (
+                <li key={d.deviceId} className="vc-settings-list__item vc-settings-list__item--stacked">
+                  <div className="vc-settings-device">
+                    <span className="vc-settings-device__icon" aria-hidden>
+                      {getDeviceIcon(kind)}
+                    </span>
+                    <div>
+                      <strong>
+                        {getDeviceTitle(d)}
+                        {isCurrent && (
+                          <span className="vc-settings-badge vc-settings-badge--ok vc-settings-device__badge">
+                            This device
+                          </span>
+                        )}
+                      </strong>
+                      <div className="vc-settings-list__meta">{describeDevice(d)}</div>
+                    </div>
+                  </div>
+                </li>
+              );
+            })}
           </ul>
         )}
         <p className="vc-settings-note">
-          Signed in as @{currentUsername}. Remote logout for other devices is coming soon.
+          Remote logout for other devices is coming soon. Logging out on a device removes its keys
+          from that device only.
         </p>
       </div>
     </div>

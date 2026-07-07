@@ -10,15 +10,17 @@ import {
   fetchRecipientDeviceBundles,
   MessageInbox,
   mergeAndUploadAccountBackup,
+  parseMemberUsernames,
   prepareMediaMessage,
   ReadStateManager,
   bootstrapDevice,
   provisionDeviceForLogin,
 } from "@vaultchat/client";
-import { useCallSession, useFriends } from "@vaultchat/chat-react";
+import { useCallSession, useFriends, PresencePicker } from "@vaultchat/chat-react";
 import { generateSafetyNumber, VaultDevice } from "@vaultchat/crypto";
 import type { ChannelInfo, ConversationPreview, GroupInfo, WsServerEvent } from "@vaultchat/protocol";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { presenceLabel } from "@vaultchat/client";
 import { SettingsModal } from "@/components/settings/SettingsModal";
 import { ActiveCallOverlay } from "./ActiveCallOverlay";
 import { IncomingCallModal } from "./IncomingCallModal";
@@ -27,7 +29,8 @@ import { useToast } from "@/hooks/useToast";
 import { ChatList } from "./ChatList";
 import { ConversationView } from "./ConversationView";
 import { FriendsPanel } from "./FriendsPanel";
-import { CommunitySidebar } from "./CommunitySidebar";
+import { CommunityView } from "./CommunityView";
+import { WebServerRail } from "./WebServerRail";
 import { GroupConversationView, type GroupDisplayMessage } from "./GroupConversationView";
 import { GroupsList } from "./GroupsList";
 import { AuthScreen, type AuthMode } from "./AuthScreen";
@@ -63,6 +66,7 @@ import {
   type DisplayMessage,
 } from "@/lib/messages";
 import {
+  ensureCommunityEncryption,
   adminReshareGroupKey,
   createGroupWithKey,
   decryptIncomingGroupMessage,
@@ -70,6 +74,7 @@ import {
   loadGroupMessages,
   sendGroupMediaMessage,
   sendGroupTextMessage,
+  shareGroupKeyWithMemberForCommunity,
 } from "@/lib/groups";
 import {
   clearSession,
@@ -119,10 +124,16 @@ export function ChatApp() {
   const [hasMoreMessages, setHasMoreMessages] = useState(false);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [unreadByPeer, setUnreadByPeer] = useState<Record<string, number>>({});
-  const [activeCommunity, setActiveCommunity] = useState<{ id: string; name: string } | null>(null);
+  const [activeCommunity, setActiveCommunity] = useState<{
+    id: string;
+    name: string;
+    description?: string;
+  } | null>(null);
   const [communityChannels, setCommunityChannels] = useState<ChannelInfo[]>([]);
   const [communityCategories, setCommunityCategories] = useState<import("@vaultchat/protocol").ChannelCategoryInfo[]>([]);
   const [activeChannel, setActiveChannel] = useState<ChannelInfo | null>(null);
+  const [groupKeyVersion, setGroupKeyVersion] = useState(0);
+  const [resharingCommunity, setResharingCommunity] = useState(false);
   const [draft, setDraft] = useState("");
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(false);
@@ -152,7 +163,9 @@ export function ChatApp() {
   const friendsRef = useRef<ReturnType<typeof useFriends> | null>(null);
   const conversationsRef = useRef(conversations);
   const peerRef = useRef(peer);
+  const communityHandlersRef = useRef(new Set<(event: WsServerEvent) => void>());
   const activeGroupRef = useRef(activeGroup);
+  const activeCommunityRef = useRef(activeCommunity);
   const screenRef = useRef(screen);
   const tabRef = useRef(tab);
   const groupMessageIdsRef = useRef(new Set<string>());
@@ -202,14 +215,22 @@ export function ChatApp() {
           show("Group encryption key received", "info");
           const gk =
             display.content.type === "group_key" ? display.content.groupKey : undefined;
-          if (gk && activeGroupRef.current?.id === gk.groupId && session) {
-            setGroupHasKey(true);
-            void loadGroupMessages(session.token, gk.groupId, session.userId).then(
-              (loaded) => {
-                for (const m of loaded) groupMessageIdsRef.current.add(m.id);
-                setGroupMessages(loaded);
+          if (gk) {
+            const inGroup =
+              activeGroupRef.current?.id === gk.groupId ||
+              activeCommunityRef.current?.id === gk.groupId;
+            if (inGroup) {
+              setGroupHasKey(true);
+              setGroupKeyVersion((v) => v + 1);
+              if (activeGroupRef.current?.id === gk.groupId) {
+                void loadGroupMessages(session.token, gk.groupId, session.userId).then(
+                  (loaded) => {
+                    for (const m of loaded) groupMessageIdsRef.current.add(m.id);
+                    setGroupMessages(loaded);
+                  }
+                );
               }
-            );
+            }
           }
           return;
         }
@@ -253,6 +274,26 @@ export function ChatApp() {
     (event: WsServerEvent) => {
       callsRef.current?.handleServerEvent(event);
       friendsRef.current?.handleServerEvent(event);
+      if (event.type === "member_join" && session && deviceRef.current) {
+        void (async () => {
+          try {
+            const access = await getGroupAccess(session.token, event.communityId, session.userId);
+            if (!access.isAdmin || !access.hasKey) return;
+            await shareGroupKeyWithMemberForCommunity(
+              session.token,
+              deviceRef.current!,
+              session.userId,
+              event.communityId,
+              event.userId
+            );
+          } catch {
+            // Admin can manually reshare from settings
+          }
+        })();
+      }
+      for (const handler of communityHandlersRef.current) {
+        handler(event);
+      }
       if (event.type === "group_message" && session) {
         const g = activeGroupRef.current;
         if (g && event.envelope.groupId === g.id) {
@@ -307,6 +348,8 @@ export function ChatApp() {
 
   const friends = useFriends({
     token: session?.token ?? null,
+    isConnected,
+    send,
     onToast: show,
   });
 
@@ -318,6 +361,7 @@ export function ChatApp() {
   conversationsRef.current = conversations;
   peerRef.current = peer;
   activeGroupRef.current = activeGroup;
+  activeCommunityRef.current = activeCommunity;
   screenRef.current = screen;
   tabRef.current = tab;
 
@@ -665,6 +709,18 @@ export function ChatApp() {
       setCommunityCategories(cats.categories);
       const general = ch.channels.find((c) => c.name === "general" && c.type === "text");
       if (general) setActiveChannel(general);
+      if (deviceRef.current) {
+        const result = await ensureCommunityEncryption(
+          session.token,
+          deviceRef.current,
+          session.userId,
+          communityId
+        );
+        if (result.recovered) {
+          setGroupKeyVersion((v) => v + 1);
+          show("Encryption key created for this community", "info");
+        }
+      }
     } catch (e) {
       show(friendlyError(e), "error");
       setScreen("list");
@@ -845,10 +901,7 @@ export function ChatApp() {
     if (!session || !deviceRef.current || !groupNameInput.trim()) return;
     setCreatingGroup(true);
     try {
-      const memberUsernames = groupMembersInput
-        .split(",")
-        .map((s) => s.trim().toLowerCase())
-        .filter(Boolean);
+      const memberUsernames = parseMemberUsernames(groupMembersInput);
       const group = await createGroupWithKey(
         session.token,
         deviceRef.current,
@@ -859,7 +912,7 @@ export function ChatApp() {
       setGroupNameInput("");
       setGroupMembersInput("");
       await refreshGroups(session.token);
-      await openGroup(group.id, group.name);
+      await openCommunity(group.id, group.name);
     } catch (e) {
       show(friendlyError(e), "error");
     } finally {
@@ -888,6 +941,37 @@ export function ChatApp() {
     } finally {
       setLoading(false);
     }
+  }
+
+  async function handleReshareCommunityKey() {
+    if (!session || !activeCommunity || !deviceRef.current) return;
+    setResharingCommunity(true);
+    try {
+      const { sharedWith } = await adminReshareGroupKey(
+        session.token,
+        deviceRef.current,
+        session.userId,
+        activeCommunity.id
+      );
+      setGroupKeyVersion((v) => v + 1);
+      show(`Encryption key sent to ${sharedWith} member(s) via encrypted DM`, "info");
+    } catch (e) {
+      show(friendlyError(e), "error");
+      throw e;
+    } finally {
+      setResharingCommunity(false);
+    }
+  }
+
+  async function handleShareCommunityKeyWithMember(targetUserId: string) {
+    if (!session || !activeCommunity || !deviceRef.current) return;
+    await shareGroupKeyWithMemberForCommunity(
+      session.token,
+      deviceRef.current,
+      session.userId,
+      activeCommunity.id,
+      targetUserId
+    );
   }
 
   async function handleReshareGroupKey() {
@@ -1087,6 +1171,21 @@ export function ChatApp() {
 
   return (
     <div className="vc-app">
+      <div className="vc-app-shell">
+        {(screen === "list" || screen === "community") && groups.length > 0 && (
+          <WebServerRail
+            groups={groups}
+            activeGroupId={activeCommunity?.id ?? null}
+            onSelectGroup={(id, name) => void openCommunity(id, name)}
+            onGoHome={() => {
+              setScreen("list");
+              setTab("groups");
+              setActiveCommunity(null);
+              setActiveChannel(null);
+            }}
+          />
+        )}
+        <div className="vc-app-shell__main">
       {screen === "list" && (
         <>
           <header className="vc-header">
@@ -1101,13 +1200,12 @@ export function ChatApp() {
             </button>
             <div className="vc-header__info">
               <div className="vc-header__title">{session.username}</div>
-              <div
-                className={`vc-header__subtitle${
-                  isConnected ? " vc-header__subtitle--online" : ""
-                }`}
-              >
-                {isConnected ? "Online" : connectionState === "reconnecting" ? "Reconnecting…" : "Offline"}
-              </div>
+              <PresencePicker
+                value={friends.ownPresence}
+                onChange={friends.setPresence}
+                disabled={!isConnected}
+                className="vc-header__presence"
+              />
             </div>
             <div className="vc-header__actions">
               <button
@@ -1196,6 +1294,7 @@ export function ChatApp() {
               authToken={session.token}
               friends={friends.friends}
               incoming={friends.incoming}
+              getPresence={friends.getPresence}
               onAddFriend={friends.addFriend}
               onAccept={friends.accept}
               onReject={friends.reject}
@@ -1204,6 +1303,7 @@ export function ChatApp() {
           ) : (
             <GroupsList
               groups={groups}
+              friends={friends.friends}
               groupName={groupNameInput}
               groupMembers={groupMembersInput}
               onGroupNameChange={setGroupNameInput}
@@ -1224,35 +1324,49 @@ export function ChatApp() {
       )}
 
       {screen === "community" && activeCommunity && (
-        <div className="vc-community-layout">
-          <CommunitySidebar
-            communityName={activeCommunity.name}
-            categories={communityCategories}
-            channels={communityChannels}
-            activeChannelId={activeChannel?.id}
-            onSelectChannel={(ch) => {
-              setActiveChannel(ch);
-              if (ch.type === "voice") {
-                show("Voice channels: join from mobile or use 1:1 calls for now.", "info");
-              }
-            }}
-            onBack={() => {
-              setScreen("list");
-              setTab("groups");
-              setActiveCommunity(null);
-              setActiveChannel(null);
-            }}
-          />
-          <div className="vc-community-main">
-            {activeChannel ? (
-              <p className="vc-register__subtitle">
-                #{activeChannel.name} — channel chat uses encrypted group keys (open #general via legacy group chat for now).
-              </p>
-            ) : (
-              <p className="vc-register__subtitle">Select a channel</p>
-            )}
-          </div>
-        </div>
+        <CommunityView
+          communityId={activeCommunity.id}
+          communityName={activeCommunity.name}
+          communityDescription={activeCommunity.description}
+          categories={communityCategories}
+          channels={communityChannels}
+          token={session.token}
+          userId={session.userId}
+          username={session.username}
+          friends={friends.friends.map((f) => ({ userId: f.userId, username: f.username }))}
+          getPresence={friends.getPresence}
+          groupKeyVersion={groupKeyVersion}
+          resharing={resharingCommunity}
+          onReshareKey={handleReshareCommunityKey}
+          onShareKeyWithMember={handleShareCommunityKeyWithMember}
+          onCommunityUpdated={(patch) => {
+            setActiveCommunity((prev) => (prev ? { ...prev, ...patch } : prev));
+            if (patch.name) {
+              setGroups((prev) =>
+                prev.map((g) => (g.id === activeCommunity.id ? { ...g, name: patch.name! } : g))
+              );
+            }
+          }}
+          onBack={() => {
+            setScreen("list");
+            setTab("groups");
+            setActiveCommunity(null);
+            setActiveChannel(null);
+          }}
+          onRefreshChannels={async () => {
+            if (!session || !activeCommunity) return;
+            const [ch, cats] = await Promise.all([
+              fetchCommunityChannels(session.token, activeCommunity.id),
+              fetchChannelCategories(session.token, activeCommunity.id),
+            ]);
+            setCommunityChannels(ch.channels);
+            setCommunityCategories(cats.categories);
+          }}
+          onServerEvent={(handler) => {
+            communityHandlersRef.current.add(handler);
+            return () => communityHandlersRef.current.delete(handler);
+          }}
+        />
       )}
 
       {screen === "group-conversation" && activeGroup && (
@@ -1283,6 +1397,7 @@ export function ChatApp() {
       {screen === "conversation" && peer && (
         <ConversationView
           peerUsername={peer.username}
+          peerPresenceLabel={presenceLabel(friends.getPresence(peer.id))}
           messages={messages}
           draft={draft}
           onDraftChange={setDraft}
@@ -1355,6 +1470,7 @@ export function ChatApp() {
           onClose={() => setSettingsOpen(false)}
           token={session.token}
           username={session.username}
+          currentDeviceId={session.deviceId}
           onLogout={() => {
             setSettingsOpen(false);
             handleLogout();
@@ -1364,6 +1480,8 @@ export function ChatApp() {
       )}
 
       <ToastContainer toasts={toasts} />
+        </div>
+      </div>
     </div>
   );
 }

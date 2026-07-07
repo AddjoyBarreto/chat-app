@@ -1,6 +1,8 @@
 "use client";
 
-import type { FriendInfo, FriendRequestInfo, UserSearchResult } from "@vaultchat/protocol";
+import type { FriendInfo, FriendRequestInfo, PresenceStatus, UserSearchResult } from "@vaultchat/protocol";
+import { PresenceDot } from "@vaultchat/chat-react";
+import { presenceLabel } from "@vaultchat/client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { searchUsers } from "@/lib/client-api";
 import { friendlyError } from "@/lib/errors";
@@ -10,6 +12,7 @@ interface FriendsPanelProps {
   authToken: string;
   friends: FriendInfo[];
   incoming: FriendRequestInfo[];
+  getPresence: (userId: string) => PresenceStatus;
   onAddFriend: (username: string) => Promise<void>;
   onAccept: (requestId: string) => Promise<void>;
   onReject: (requestId: string) => Promise<void>;
@@ -33,6 +36,7 @@ export function FriendsPanel({
   authToken,
   friends,
   incoming,
+  getPresence,
   onAddFriend,
   onAccept,
   onReject,
@@ -225,10 +229,13 @@ export function FriendsPanel({
                   className="vc-friend-item"
                   onClick={() => onMessage(f.userId, f.username)}
                 >
-                  <div className="vc-friend-item__avatar">{f.username[0]}</div>
+                  <div className="vc-friend-item__avatar-wrap">
+                    <div className="vc-friend-item__avatar">{f.username[0]}</div>
+                    <PresenceDot status={getPresence(f.userId)} className="vc-friend-item__presence" />
+                  </div>
                   <div className="vc-friend-item__info">
                     <div className="vc-friend-item__name">@{f.username}</div>
-                    <div className="vc-friend-item__hint">Tap to message</div>
+                    <div className="vc-friend-item__hint">{presenceLabel(getPresence(f.userId))}</div>
                   </div>
                   <span className="vc-friend-item__chevron" aria-hidden>
                     ›

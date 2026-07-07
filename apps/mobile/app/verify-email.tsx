@@ -7,13 +7,9 @@ import {
 } from "@vaultchat/client";
 import { Redirect, useRouter } from "expo-router";
 import { useState } from "react";
-import {
-  ActivityIndicator,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from "react-native";
+import { StyleSheet, Text, TouchableOpacity } from "react-native";
+import { AuthScreen } from "@/components/ui/AuthScreen";
+import { Button } from "@/components/ui/Button";
 import { useApp, storage } from "@/context/AppContext";
 import { theme } from "@/theme";
 
@@ -65,87 +61,48 @@ export default function VerifyEmailScreen() {
   }
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.logo}>✉️</Text>
-      <Text style={styles.title}>Verify your email</Text>
-      <Text style={styles.subtitle}>
-        We sent a verification link to your inbox. Open it, then tap below.
-      </Text>
+    <AuthScreen
+      title="Verify your email"
+      subtitle="We sent a verification link to your inbox. Open it, then tap the button below."
+      footer={
+        <TouchableOpacity onPress={() => void logout()}>
+          <Text style={styles.footerLink}>Back to sign in</Text>
+        </TouchableOpacity>
+      }
+    >
       <Text style={styles.hint}>
         Local dev: check the API server terminal for the verification URL if SMTP is not set.
       </Text>
 
-      {message && <Text style={styles.message}>{message}</Text>}
+      {message ? <Text style={styles.message}>{message}</Text> : null}
 
-      <TouchableOpacity
-        style={[styles.btn, resending && styles.btnDisabled]}
-        onPress={() => void handleResend()}
-        disabled={resending}
-      >
-        {resending ? (
-          <ActivityIndicator color={theme.bgApp} />
-        ) : (
-          <Text style={styles.btnText}>Resend email</Text>
-        )}
-      </TouchableOpacity>
+      <Button title="Resend email" onPress={() => void handleResend()} loading={resending} />
 
-      <TouchableOpacity
-        style={[styles.btn, styles.btnSecondary, checking && styles.btnDisabled]}
+      <Button
+        title="I've verified my email"
+        variant="secondary"
         onPress={() => void handleCheckVerified()}
-        disabled={checking}
-      >
-        {checking ? (
-          <ActivityIndicator color={theme.accent} />
-        ) : (
-          <Text style={styles.btnSecondaryText}>I&apos;ve verified my email</Text>
-        )}
-      </TouchableOpacity>
-
-      <TouchableOpacity style={styles.linkBtn} onPress={() => void logout()}>
-        <Text style={styles.linkText}>Back to sign in</Text>
-      </TouchableOpacity>
-    </View>
+        loading={checking}
+        style={styles.secondary}
+      />
+    </AuthScreen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: theme.bgApp,
-    alignItems: "center",
-    justifyContent: "center",
-    padding: 24,
-  },
-  logo: { fontSize: 64, marginBottom: 16 },
-  title: { color: theme.textPrimary, fontSize: 24, fontWeight: "600", marginBottom: 8 },
-  subtitle: {
-    color: theme.textSecondary,
-    textAlign: "center",
-    lineHeight: 22,
-    marginBottom: 12,
-    maxWidth: 300,
-  },
   hint: {
     color: theme.textMuted,
-    fontSize: 12,
+    fontSize: theme.fontSize.sm,
     textAlign: "center",
-    marginBottom: 24,
-    maxWidth: 280,
+    lineHeight: 18,
+    marginBottom: theme.spacing.lg,
   },
-  message: { color: theme.accent, marginBottom: 16, textAlign: "center" },
-  btn: {
-    width: "100%",
-    maxWidth: 320,
-    backgroundColor: theme.accent,
-    padding: 14,
-    borderRadius: 8,
-    alignItems: "center",
-    marginBottom: 12,
+  message: {
+    color: theme.accent,
+    fontSize: theme.fontSize.md,
+    textAlign: "center",
+    marginBottom: theme.spacing.md,
   },
-  btnSecondary: { backgroundColor: "transparent", borderWidth: 1, borderColor: theme.accent },
-  btnDisabled: { opacity: 0.7 },
-  btnText: { color: theme.bgApp, fontWeight: "600", fontSize: 16 },
-  btnSecondaryText: { color: theme.accent, fontWeight: "600", fontSize: 16 },
-  linkBtn: { marginTop: 16 },
-  linkText: { color: theme.textMuted, fontSize: 14 },
+  secondary: { marginTop: theme.spacing.sm },
+  footerLink: { color: theme.textMuted, fontSize: theme.fontSize.md },
 });

@@ -1,42 +1,44 @@
 import {
   decryptGroupEnvelope,
+  fetchChannelCategories,
+  fetchCommunityChannels,
   fetchGroupMembers,
   fetchGroupMessages,
+  fetchVoicePresence,
   friendlyError,
+  joinVoiceChannel,
+  leaveVoiceChannel,
   loadGroupCipher,
-  previewGroupContent,
   reshareGroupKey,
   sendGroupContentMessage,
 } from "@vaultchat/client";
-import type { MessageContent, WsServerEvent } from "@vaultchat/protocol";
-import { useLocalSearchParams, useNavigation } from "expo-router";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import type {
+  ChannelCategoryInfo,
+  ChannelInfo,
+  VoicePresenceInfo,
+  WsServerEvent,
+} from "@vaultchat/protocol";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
-  FlatList,
-  Image,
-  KeyboardAvoidingView,
-  Platform,
+  Pressable,
   StyleSheet,
   Text,
-  TextInput,
-  TouchableOpacity,
   View,
 } from "react-native";
-import { MediaBubble } from "@/components/MediaBubble";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { GroupChannelDrawer } from "@/components/group/GroupChannelDrawer";
+import { GroupMembersSheet } from "@/components/group/GroupMembersSheet";
+import { GroupMessageList, type GroupMessageItem } from "@/components/group/GroupMessageList";
+import { GroupVoiceView } from "@/components/group/GroupVoiceView";
+import { ChatComposer } from "@/components/ChatComposer";
+import { ChatScreenLayout } from "@/components/ChatScreenLayout";
 import { useApp, storage } from "@/context/AppContext";
+import { useFriendsContext } from "@/context/FriendsContext";
 import { pickAndPrepareMedia } from "@/lib/media";
 import { theme } from "@/theme";
-
-interface GroupMsg {
-  id: string;
-  text: string;
-  content: MessageContent;
-  from: "me" | "them";
-  time: string;
-  failed?: boolean;
-}
 
 export default function GroupChatScreen() {
   const { groupId, groupName } = useLocalSearchParams<{
@@ -44,8 +46,15 @@ export default function GroupChatScreen() {
     groupName: string;
   }>();
   const { session, device, onServerEventHandlers, groupKeysVersion } = useApp();
-  const navigation = useNavigation();
-  const [messages, setMessages] = useState<GroupMsg[]>([]);
+  const friends = useFriendsContext();
+  const router = useRouter();
+
+  const [displayName, setDisplayName] = useState(groupName ?? "Community");
+  const [categories, setCategories] = useState<ChannelCategoryInfo[]>([]);
+  const [channels, setChannels] = useState<ChannelInfo[]>([]);
+  const [activeChannel, setActiveChannel] = useState<ChannelInfo | null>(null);
+  const [members, setMembers] = useState<Awaited<ReturnType<typeof fetchGroupMembers>>>([]);
+  const [messages, setMessages] = useState<GroupMessageItem[]>([]);
   const messageIds = useRef(new Set<string>());
   const [draft, setDraft] = useState("");
   const [loading, setLoading] = useState(true);
@@ -53,37 +62,40 @@ export default function GroupChatScreen() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [hasKey, setHasKey] = useState(false);
   const [resharing, setResharing] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [membersOpen, setMembersOpen] = useState(false);
+  const [voiceMembers, setVoiceMembers] = useState<VoicePresenceInfo[]>([]);
+  const [inVoice, setInVoice] = useState(false);
+  const [voiceLoading, setVoiceLoading] = useState(false);
 
-  useLayoutEffect(() => {
-    navigation.setOptions({
-      title: groupName ?? "Group",
-      headerRight: () =>
-        isAdmin && hasKey ? (
-          <TouchableOpacity
-            onPress={() => void handleReshareKey()}
-            disabled={resharing}
-            style={{ marginRight: 12, opacity: resharing ? 0.5 : 1 }}
-          >
-            <Text style={{ fontSize: 20 }}>🔑</Text>
-          </TouchableOpacity>
-        ) : null,
-    });
-  }, [navigation, groupName, isAdmin, hasKey, resharing]);
+  const me = members.find((m) => m.userId === session?.userId);
+
+  const refreshChannels = useCallback(async () => {
+    if (!session || !groupId) return [];
+    const [ch, cats] = await Promise.all([
+      fetchCommunityChannels(session.token, groupId),
+      fetchChannelCategories(session.token, groupId),
+    ]);
+    setChannels(ch.channels);
+    setCategories(cats.categories);
+    return ch.channels;
+  }, [session, groupId]);
 
   const loadMessages = useCallback(async () => {
     if (!session || !groupId) return;
-    const members = await fetchGroupMembers(session.token, groupId);
-    const me = members.find((m) => m.userId === session.userId);
-    setIsAdmin(me?.role === "admin");
-    const cipher = await loadGroupCipher(storage, session.userId, groupId);
-    setHasKey(cipher !== null);
-
     const { messages: envelopes } = await fetchGroupMessages(session.token, groupId);
-    const parsed: GroupMsg[] = [];
-    for (const e of envelopes) {
-      const msg = await decryptGroupEnvelope(storage, groupId, e, session.userId);
+    const names = new Map(members.map((m) => [m.userId, m.username]));
+    const myName = members.find((m) => m.userId === session.userId)?.username ?? session.username;
+    const parsed: GroupMessageItem[] = [];
+    for (const envelope of envelopes) {
+      const msg = await decryptGroupEnvelope(storage, groupId, envelope, session.userId);
+      const author =
+        msg.from === "me"
+          ? myName
+          : (names.get(envelope.senderId) ?? envelope.senderId.slice(0, 8));
       parsed.push({
         id: msg.id,
+        username: author,
         text: msg.text,
         content: msg.content,
         from: msg.from,
@@ -94,49 +106,100 @@ export default function GroupChatScreen() {
     messageIds.current.clear();
     for (const m of parsed) messageIds.current.add(m.id);
     setMessages(parsed);
-  }, [session, groupId]);
+  }, [session, groupId, members]);
+
+  const refreshVoice = useCallback(
+    async (channelId: string) => {
+      if (!session) return;
+      const res = await fetchVoicePresence(session.token, channelId);
+      setVoiceMembers(res.members);
+    },
+    [session]
+  );
 
   useEffect(() => {
+    if (!session || !groupId) return;
+    let cancelled = false;
     void (async () => {
+      setLoading(true);
       try {
-        await loadMessages();
+        const [memberList, ch] = await Promise.all([
+          fetchGroupMembers(session.token, groupId),
+          refreshChannels(),
+        ]);
+        if (cancelled) return;
+        setMembers(memberList);
+        const admin = memberList.find((m) => m.userId === session.userId);
+        setIsAdmin(admin?.role === "admin");
+        const cipher = await loadGroupCipher(storage, session.userId, groupId);
+        setHasKey(cipher !== null);
+        const general =
+          ch.find((c) => c.type === "text" && c.name === "general") ??
+          ch.find((c) => c.type === "text") ??
+          null;
+        setActiveChannel(general);
+        if (groupName) setDisplayName(groupName);
       } catch (e) {
-        Alert.alert("Error", friendlyError(e));
+        if (!cancelled) Alert.alert("Error", friendlyError(e));
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     })();
-  }, [loadMessages]);
+    return () => {
+      cancelled = true;
+    };
+  }, [session, groupId, groupName, refreshChannels]);
 
   useEffect(() => {
-    if (!loading && groupKeysVersion > 0) {
-      void loadMessages();
-    }
-  }, [groupKeysVersion, loading, loadMessages]);
+    if (!activeChannel || activeChannel.type !== "text" || !hasKey) return;
+    void loadMessages().catch((e) => Alert.alert("Error", friendlyError(e)));
+  }, [activeChannel, hasKey, loadMessages, groupKeysVersion]);
+
+  useEffect(() => {
+    if (!activeChannel || activeChannel.type !== "voice") return;
+    void refreshVoice(activeChannel.id).catch(() => {});
+  }, [activeChannel, refreshVoice]);
 
   const handleGroupEvent = useCallback(
     (event: WsServerEvent) => {
-      if (event.type !== "group_message" || !session || !groupId) return;
-      if (event.envelope.groupId !== groupId) return;
-      if (messageIds.current.has(event.envelope.id)) return;
-      void decryptGroupEnvelope(storage, groupId, event.envelope, session.userId).then(
-        (msg) => {
-          messageIds.current.add(msg.id);
-          setMessages((prev) => [
-            ...prev,
-            {
-              id: msg.id,
-              text: msg.text,
-              content: msg.content,
-              from: msg.from,
-              time: msg.time,
-              failed: msg.failed,
-            },
-          ]);
-        }
-      );
+      if (!session || !groupId) return;
+      if (event.type === "group_message" && event.envelope.groupId === groupId) {
+        if (messageIds.current.has(event.envelope.id)) return;
+        messageIds.current.add(event.envelope.id);
+        void decryptGroupEnvelope(storage, groupId, event.envelope, session.userId).then(
+          (msg) => {
+            const author =
+              msg.from === "me"
+                ? (me?.username ?? session.username)
+                : (members.find((m) => m.userId === event.envelope.senderId)?.username ??
+                  event.envelope.senderId.slice(0, 8));
+            setMessages((prev) => {
+              if (prev.some((m) => m.id === msg.id)) return prev;
+              return [
+                ...prev,
+                {
+                  id: msg.id,
+                  username: author,
+                  text: msg.text,
+                  content: msg.content,
+                  from: msg.from,
+                  time: msg.time,
+                  failed: msg.failed,
+                },
+              ];
+            });
+          }
+        );
+      }
+      if (
+        event.type === "voice_presence" &&
+        activeChannel?.type === "voice" &&
+        event.channelId === activeChannel.id
+      ) {
+        setVoiceMembers(event.members);
+      }
     },
-    [session, groupId]
+    [session, groupId, me?.username, members, activeChannel]
   );
 
   useEffect(() => {
@@ -157,7 +220,8 @@ export default function GroupChatScreen() {
         session.userId,
         groupId
       );
-      Alert.alert("Key shared", `Encryption key sent to ${sharedWith} member(s) via encrypted DM`);
+      Alert.alert("Key shared", `Encryption key sent to ${sharedWith} member(s)`);
+      setHasKey(true);
     } catch (e) {
       Alert.alert("Failed", friendlyError(e));
     } finally {
@@ -166,7 +230,7 @@ export default function GroupChatScreen() {
   }
 
   async function handleSend() {
-    if (!session || !groupId || !draft.trim() || !hasKey) return;
+    if (!session || !groupId || !draft.trim() || !hasKey || !activeChannel) return;
     const text = draft.trim();
     setDraft("");
     setSending(true);
@@ -179,17 +243,8 @@ export default function GroupChatScreen() {
         { type: "text", text },
         "text"
       );
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: result.messageId,
-          text,
-          content: { type: "text", text },
-          from: "me",
-          time: result.createdAt,
-        },
-      ]);
       messageIds.current.add(result.messageId);
+      await loadMessages();
     } catch (e) {
       Alert.alert("Send failed", friendlyError(e));
     } finally {
@@ -198,7 +253,7 @@ export default function GroupChatScreen() {
   }
 
   async function handleAttachMedia() {
-    if (!session || !groupId || !hasKey || sending) return;
+    if (!session || !groupId || !hasKey || sending || !activeChannel) return;
     setSending(true);
     try {
       const prepared = await pickAndPrepareMedia(session.token);
@@ -211,17 +266,8 @@ export default function GroupChatScreen() {
         prepared.content,
         prepared.messageType
       );
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: result.messageId,
-          text: previewGroupContent(prepared.content),
-          content: prepared.content,
-          from: "me",
-          time: result.createdAt,
-        },
-      ]);
       messageIds.current.add(result.messageId);
+      await loadMessages();
     } catch (e) {
       Alert.alert("Send failed", friendlyError(e));
     } finally {
@@ -229,122 +275,214 @@ export default function GroupChatScreen() {
     }
   }
 
-  function renderBubble({ item }: { item: GroupMsg }) {
-    return (
-      <View style={[styles.bubble, item.from === "me" ? styles.bubbleOut : styles.bubbleIn]}>
-        {item.failed ? (
-          <Text style={styles.bubbleText}>{item.text}</Text>
-        ) : (
-          <>
-            {item.content.type === "image" && item.content.image && (
-              <Image
-                source={{
-                  uri: `data:${item.content.image.mime};base64,${item.content.image.data}`,
-                }}
-                style={styles.bubbleImage}
-              />
-            )}
-            {item.content.type === "media" && item.content.media && session && (
-              <MediaBubble token={session.token} media={item.content.media} />
-            )}
-            {item.content.text && item.content.type === "text" && (
-              <Text style={styles.bubbleText}>{item.content.text}</Text>
-            )}
-          </>
-        )}
-      </View>
-    );
+  async function toggleVoice() {
+    if (!session || !activeChannel || activeChannel.type !== "voice") return;
+    setVoiceLoading(true);
+    try {
+      if (inVoice) {
+        await leaveVoiceChannel(session.token, activeChannel.id);
+        setInVoice(false);
+      } else {
+        await joinVoiceChannel(session.token, activeChannel.id);
+        setInVoice(true);
+      }
+      await refreshVoice(activeChannel.id);
+    } catch (e) {
+      Alert.alert("Voice", friendlyError(e));
+    } finally {
+      setVoiceLoading(false);
+    }
   }
+
+  function goBack() {
+    if (router.canGoBack()) {
+      router.back();
+    } else {
+      router.replace("/groups");
+    }
+  }
+
+  function selectChannel(channel: ChannelInfo) {
+    setActiveChannel(channel);
+    if (channel.type === "voice") setInVoice(false);
+  }
+
+  const channelPrefix =
+    activeChannel?.type === "voice" ? "🔊" : activeChannel?.type === "announcement" ? "📢" : "#";
 
   if (loading) {
     return (
       <View style={styles.loading}>
-        <ActivityIndicator color={theme.accent} />
+        <ActivityIndicator color={theme.accent} size="large" />
       </View>
     );
   }
 
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
-      keyboardVerticalOffset={90}
-    >
-      {!hasKey && (
-        <Text style={styles.banner}>
-          Missing group key — ask the admin to tap 🔑 to re-share
-        </Text>
-      )}
-      <Text style={styles.header}>🔒 {groupName}</Text>
-      <FlatList
-        data={messages}
-        keyExtractor={(m) => m.id}
-        contentContainerStyle={{ padding: 12 }}
-        renderItem={renderBubble}
-      />
-      <View style={styles.composer}>
-        <TouchableOpacity
-          style={styles.attachBtn}
-          onPress={() => void handleAttachMedia()}
-          disabled={sending || !hasKey}
-        >
-          <Text style={styles.attachBtnText}>📎</Text>
-        </TouchableOpacity>
-        <TextInput
-          style={styles.input}
-          value={draft}
-          onChangeText={setDraft}
-          placeholder={hasKey ? "Group message" : "Waiting for encryption key…"}
-          placeholderTextColor={theme.textMuted}
-          editable={hasKey && !sending}
-        />
-        <TouchableOpacity
-          style={[styles.send, (!draft.trim() || sending || !hasKey) && styles.sendDisabled]}
-          onPress={() => void handleSend()}
-          disabled={!draft.trim() || sending || !hasKey}
-        >
-          <Text style={styles.sendText}>➤</Text>
-        </TouchableOpacity>
+    <SafeAreaView style={styles.safe} edges={["top", "bottom"]}>
+      <View style={styles.header}>
+        <Pressable style={styles.headerBtn} onPress={goBack} hitSlop={8} accessibilityLabel="Back to communities">
+          <Text style={styles.backIcon}>‹</Text>
+        </Pressable>
+        <Pressable style={styles.headerCenter} onPress={() => setDrawerOpen(true)}>
+          <Text style={styles.channelPrefix}>{channelPrefix}</Text>
+          <Text style={styles.channelTitle} numberOfLines={1}>
+            {activeChannel?.name ?? "Select a channel"}
+          </Text>
+          <Text style={styles.channelChevron}>▾</Text>
+        </Pressable>
+        <Pressable style={styles.headerBtn} onPress={() => setMembersOpen(true)} hitSlop={8}>
+          <Text style={styles.membersIcon}>👥</Text>
+        </Pressable>
       </View>
-    </KeyboardAvoidingView>
+
+      {!hasKey && (
+        <View style={styles.banner}>
+          <Text style={styles.bannerText}>
+            Missing encryption key — ask an admin to re-share the key
+          </Text>
+          {isAdmin ? (
+            <Pressable
+              style={styles.bannerBtn}
+              onPress={() => void handleReshareKey()}
+              disabled={resharing}
+            >
+              <Text style={styles.bannerBtnText}>{resharing ? "Sharing…" : "Re-share key"}</Text>
+            </Pressable>
+          ) : null}
+        </View>
+      )}
+
+      {activeChannel?.type === "text" ? (
+        <ChatScreenLayout
+          list={
+            <GroupMessageList
+              messages={messages}
+              channelName={activeChannel.name}
+              token={session!.token}
+              hasKey={hasKey}
+            />
+          }
+          composer={
+            <ChatComposer
+              value={draft}
+              onChangeText={setDraft}
+              onSend={() => void handleSend()}
+              onAttach={() => void handleAttachMedia()}
+              placeholder={hasKey ? `Message #${activeChannel.name}` : "Waiting for encryption key…"}
+              editable={hasKey}
+              sending={sending}
+              attachDisabled={!hasKey}
+              sendDisabled={!hasKey || !draft.trim()}
+            />
+          }
+        />
+      ) : activeChannel?.type === "voice" ? (
+        <GroupVoiceView
+          channelName={activeChannel.name}
+          members={voiceMembers}
+          inVoice={inVoice}
+          loading={voiceLoading}
+          onToggleVoice={() => void toggleVoice()}
+        />
+      ) : (
+        <View style={styles.emptyChannel}>
+          <Text style={styles.emptyChannelText}>Select a channel from the menu</Text>
+          <Pressable style={styles.emptyChannelBtn} onPress={() => setDrawerOpen(true)}>
+            <Text style={styles.emptyChannelBtnText}>Browse channels</Text>
+          </Pressable>
+        </View>
+      )}
+
+      <GroupChannelDrawer
+        visible={drawerOpen}
+        communityName={displayName}
+        categories={categories}
+        channels={channels}
+        activeChannelId={activeChannel?.id}
+        onClose={() => setDrawerOpen(false)}
+        onBack={goBack}
+        onSelectChannel={selectChannel}
+      />
+
+      <GroupMembersSheet
+        visible={membersOpen}
+        communityName={displayName}
+        members={members}
+        getPresence={friends.getPresence}
+        onClose={() => setMembersOpen(false)}
+      />
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.bgApp },
+  safe: { flex: 1, backgroundColor: theme.bgHeader },
   loading: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: theme.bgApp },
-  banner: {
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
     backgroundColor: theme.bgHeader,
-    color: theme.warning,
-    padding: 10,
-    fontSize: 13,
-    textAlign: "center",
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: theme.border,
+    paddingHorizontal: theme.spacing.sm,
+    paddingVertical: theme.spacing.sm,
+    gap: theme.spacing.xs,
   },
-  header: { padding: 12, backgroundColor: theme.bgHeader, color: theme.textSecondary, fontSize: 13 },
-  bubble: { maxWidth: "80%", padding: 10, borderRadius: 8, marginVertical: 4 },
-  bubbleOut: { alignSelf: "flex-end", backgroundColor: theme.bgBubbleOut },
-  bubbleIn: { alignSelf: "flex-start", backgroundColor: theme.bgBubbleIn },
-  bubbleText: { color: theme.textPrimary },
-  bubbleImage: { width: 200, height: 200, borderRadius: 6, marginBottom: 4 },
-  composer: { flexDirection: "row", padding: 8, gap: 8, backgroundColor: theme.bgHeader, alignItems: "flex-end" },
-  attachBtn: { width: 40, height: 44, alignItems: "center", justifyContent: "center" },
-  attachBtnText: { fontSize: 20 },
-  input: {
-    flex: 1,
-    backgroundColor: theme.bgInput,
-    color: theme.textPrimary,
-    borderRadius: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-  },
-  send: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: theme.accent,
+  headerBtn: {
+    width: 40,
+    height: 40,
     alignItems: "center",
     justifyContent: "center",
   },
-  sendDisabled: { opacity: 0.5 },
-  sendText: { color: theme.bgApp, fontSize: 18 },
+  menuIcon: { color: theme.textPrimary, fontSize: 22 },
+  backIcon: { color: theme.textPrimary, fontSize: 32, fontWeight: "300", marginTop: -4 },
+  membersIcon: { fontSize: 20 },
+  headerCenter: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: theme.spacing.xs,
+  },
+  channelPrefix: { color: theme.textMuted, fontSize: theme.fontSize.lg, fontWeight: "600" },
+  channelTitle: { color: theme.textPrimary, fontSize: theme.fontSize.lg, fontWeight: "600", flex: 1 },
+  channelChevron: { color: theme.textMuted, fontSize: 14, marginLeft: 2 },
+  banner: {
+    backgroundColor: theme.bgElevated,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: theme.border,
+    padding: theme.spacing.md,
+    gap: theme.spacing.sm,
+  },
+  bannerText: {
+    color: theme.warning,
+    fontSize: theme.fontSize.sm,
+    textAlign: "center",
+    lineHeight: 18,
+  },
+  bannerBtn: {
+    alignSelf: "center",
+    backgroundColor: theme.accent,
+    paddingHorizontal: theme.spacing.lg,
+    paddingVertical: theme.spacing.sm,
+    borderRadius: theme.radius.pill,
+  },
+  bannerBtnText: { color: theme.bgApp, fontWeight: "600", fontSize: theme.fontSize.sm },
+  emptyChannel: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: theme.bgApp,
+    padding: theme.spacing.xl,
+    gap: theme.spacing.lg,
+  },
+  emptyChannelText: { color: theme.textSecondary, fontSize: theme.fontSize.md },
+  emptyChannelBtn: {
+    backgroundColor: theme.accent,
+    paddingHorizontal: theme.spacing.xl,
+    paddingVertical: theme.spacing.md,
+    borderRadius: theme.radius.pill,
+  },
+  emptyChannelBtnText: { color: theme.bgApp, fontWeight: "600" },
 });

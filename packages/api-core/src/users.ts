@@ -312,7 +312,11 @@ export async function listUserDevices(
   userId: string
 ): Promise<import("@vaultchat/protocol").ListDevicesResponse> {
   const rows = await ctx.db
-    .select({ deviceId: devices.deviceId, deviceName: devices.deviceName })
+    .select({
+      deviceId: devices.deviceId,
+      deviceName: devices.deviceName,
+      createdAt: devices.createdAt,
+    })
     .from(devices)
     .where(eq(devices.userId, userId))
     .orderBy(asc(devices.deviceId));
@@ -321,6 +325,7 @@ export async function listUserDevices(
     devices: rows.map((r) => ({
       deviceId: r.deviceId,
       deviceName: r.deviceName ?? undefined,
+      createdAt: r.createdAt.toISOString(),
     })),
   };
 }

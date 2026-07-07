@@ -12,6 +12,8 @@
   "dependencies": {
     "@babel/runtime": "^7.27.4",
     "@expo/metro-runtime": "~4.0.1",
+    "@noble/ciphers": "^2.2.0",
+    "@noble/hashes": "^2.2.0",
     "@vaultchat/chat-react": "workspace:*",
     "@vaultchat/client": "workspace:*",
     "@vaultchat/crypto": "workspace:*",
@@ -26,15 +28,15 @@
     "expo-secure-store": "~14.0.1",
     "expo-sqlite": "~15.1.4",
     "expo-status-bar": "~2.0.1",
-    "@shopify/flash-list": "^1.7.3",
-    "text-encoding": "^0.7.0",
     "react": "18.3.1",
     "react-dom": "18.3.1",
     "react-native": "0.76.9",
     "react-native-gesture-handler": "~2.20.2",
-    "react-native-webrtc": "^124.0.5",
+    "react-native-get-random-values": "^1.11.0",
     "react-native-safe-area-context": "4.12.0",
-    "react-native-screens": "~4.4.0"
+    "react-native-screens": "~4.4.0",
+    "react-native-webrtc": "^124.0.5",
+    "text-encoding": "^0.7.0"
   },
   "devDependencies": {
     "@babel/core": "^7.27.4",

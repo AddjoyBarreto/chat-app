@@ -8,10 +8,12 @@ type FriendsContextValue = ReturnType<typeof useFriends>;
 const FriendsContext = createContext<FriendsContextValue | null>(null);
 
 export function FriendsProvider({ children }: { children: ReactNode }) {
-  const { session, onServerEventHandlers } = useApp();
+  const { session, onServerEventHandlers, connectionState, gatewaySend } = useApp();
 
   const friends = useFriends({
     token: session?.token ?? null,
+    isConnected: connectionState === "connected",
+    send: gatewaySend,
     onToast: (msg, type) => {
       if (type === "error") Alert.alert("Friends", msg);
     },

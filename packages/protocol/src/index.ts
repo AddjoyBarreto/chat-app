@@ -152,6 +152,7 @@ export interface MessageEnvelope {
 export interface UserDeviceInfo {
   deviceId: number;
   deviceName?: string;
+  createdAt?: string;
 }
 
 export interface ListDevicesResponse {
@@ -376,6 +377,10 @@ export interface UpdateCommunityRequest {
   description?: string;
 }
 
+export interface AddCommunityMemberRequest {
+  username: string;
+}
+
 export interface CommunityMemberActionResponse {
   ok: true;
 }
@@ -398,6 +403,7 @@ export interface ChannelInfo {
   name: string;
   type: ChannelType;
   topic?: string;
+  isPrivate?: boolean;
   position: number;
 }
 
@@ -406,6 +412,22 @@ export interface CreateChannelRequest {
   type?: ChannelType;
   categoryId?: string;
   topic?: string;
+  isPrivate?: boolean;
+}
+
+export interface UpdateChannelRequest {
+  name?: string;
+  topic?: string;
+  isPrivate?: boolean;
+}
+
+export interface ChannelMemberInfo {
+  userId: string;
+  username: string;
+}
+
+export interface AddChannelMemberRequest {
+  userId: string;
 }
 
 export interface CreateCategoryRequest {
@@ -469,11 +491,25 @@ export interface IceCandidatePayload {
   usernameFragment?: string | null;
 }
 
+// ─── Presence ────────────────────────────────────────────────────────────────
+
+/** User-visible presence. `idle` covers away/sleep; `busy` is do-not-disturb. */
+export type PresenceStatus = "online" | "idle" | "busy" | "invisible" | "offline";
+
+/** Status the user can manually choose while connected (not offline). */
+export type SettablePresenceStatus = Exclude<PresenceStatus, "offline">;
+
+export interface FriendPresence {
+  userId: string;
+  status: PresenceStatus;
+}
+
 // ─── WebSocket events ────────────────────────────────────────────────────────
 
 export type WsClientEvent =
   | { type: "auth"; token: string }
   | { type: "ping" }
+  | { type: "presence_set"; status: SettablePresenceStatus }
   | { type: "call_invite"; callId: string; calleeId: string; callType: CallType }
   | { type: "call_accept"; callId: string }
   | { type: "call_reject"; callId: string; reason?: string }
@@ -490,6 +526,7 @@ export type WsServerEvent =
   | { type: "channel_message"; envelope: ChannelMessageEnvelope }
   | { type: "friend_request"; request: FriendRequestInfo }
   | { type: "friend_accept"; friend: FriendInfo }
+  | { type: "friends_changed" }
   | { type: "member_join"; communityId: string; userId: string; username: string }
   | { type: "member_leave"; communityId: string; userId: string }
   | { type: "voice_presence"; channelId: string; members: VoicePresenceInfo[] }
@@ -500,6 +537,8 @@ export type WsServerEvent =
   | { type: "call_answer"; callId: string; sdp: SessionDescriptionPayload }
   | { type: "call_ice"; callId: string; candidate: IceCandidatePayload }
   | { type: "call_ended"; callId: string; reason?: string }
+  | { type: "presence_snapshot"; friends: FriendPresence[] }
+  | { type: "presence_update"; userId: string; status: PresenceStatus }
   | { type: "pong" }
   | { type: "error"; error: string };
 

@@ -1,13 +1,11 @@
 import type {
   BlockInfo,
   BlocksListResponse,
-  CreateInviteRequest,
   DmPolicy,
   FriendInfo,
   FriendRequestInfo,
   FriendRequestsResponse,
   FriendsListResponse,
-  InviteInfo,
   PrivacySettingsResponse,
   RedeemInviteResponse,
   UpdatePrivacyRequest,
@@ -112,19 +110,6 @@ export async function updatePrivacySettings(
 ): Promise<PrivacySettingsResponse> {
   const res = await clientFetch(apiUrl("/api/v1/privacy"), {
     method: "PATCH",
-    headers: authHeaders(token),
-    body: JSON.stringify(body),
-  });
-  return parseApiResponse(res);
-}
-
-export async function createCommunityInvite(
-  token: string,
-  communityId: string,
-  body: CreateInviteRequest = {}
-): Promise<InviteInfo> {
-  const res = await clientFetch(apiUrl(`/api/v1/communities/${communityId}/invites`), {
-    method: "POST",
     headers: authHeaders(token),
     body: JSON.stringify(body),
   });

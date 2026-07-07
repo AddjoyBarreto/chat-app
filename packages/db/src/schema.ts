@@ -356,10 +356,29 @@ export const channels = pgTable(
     name: text("name").notNull(),
     type: text("type").notNull().default("text"),
     topic: text("topic"),
+    isPrivate: boolean("is_private").notNull().default(false),
     position: integer("position").notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [index("channels_community_idx").on(table.communityId, table.position)]
+);
+
+export const channelMembers = pgTable(
+  "channel_members",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    channelId: uuid("channel_id")
+      .notNull()
+      .references(() => channels.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("channel_members_channel_user_idx").on(table.channelId, table.userId),
+    index("channel_members_channel_idx").on(table.channelId),
+  ]
 );
 
 export const channelMessages = pgTable(

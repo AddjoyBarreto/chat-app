@@ -5,6 +5,13 @@ import { createRedis } from "./redis.js";
 export { createToken, verifyToken, type AuthClaims } from "./auth.js";
 export { ApiCoreError, isApiCoreError } from "./errors.js";
 export { createRedis, publishMessage, MESSAGE_CHANNEL_PREFIX } from "./redis.js";
+export {
+  PRESENCE_KEY_PREFIX,
+  PRESENCE_TTL_SEC,
+  presenceRedisKey,
+  publicPresenceStatus,
+  isConnectedPresence,
+} from "./presence.js";
 export type { ApiContext } from "./context.js";
 export { registerUser, loginUser, verifyEmail, resendVerificationEmail, getMe, requireVerifiedEmail } from "./auth-users.js";
 export { setEmailConfig, getEmailConfig } from "./email.js";
@@ -15,6 +22,7 @@ export { getDmReadState, setDmReadState } from "./read-state.js";
 export {
   areFriends,
   assertCanDm,
+  listFriendIds,
   listFriends,
   listFriendRequests,
   sendFriendRequest,
@@ -30,6 +38,7 @@ export {
 export { createInvite, listCommunityInvites, redeemInvite } from "./invites.js";
 export {
   updateCommunity,
+  addCommunityMember,
   kickCommunityMember,
   promoteCommunityMember,
 } from "./communities.js";
@@ -37,12 +46,18 @@ export {
   listChannels,
   listChannelCategories,
   createChannel,
+  updateChannel,
+  deleteChannel,
   createChannelCategory,
   getChannelMessages,
   sendChannelMessage,
   joinVoiceChannel,
   leaveVoiceChannel,
   getVoicePresence,
+  listChannelMembers,
+  addChannelMember,
+  removeChannelMember,
+  getChannelAccessUserIds,
 } from "./channels.js";
 export {
   createMediaUploadUrl,

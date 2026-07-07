@@ -16,14 +16,40 @@ export async function distributeGroupKey(
   const members = await fetchGroupMembers(token, groupId);
   for (const member of members) {
     if (member.userId === userId) continue;
-    const bundle = await fetchPreKeyBundle(member.userId);
-    const plaintext = serializeMessageContent({
-      type: "group_key",
-      groupKey: { groupId, key: keyBase64 },
-    });
-    const encrypted = await device.encrypt(member.userId, bundle.deviceId, plaintext, bundle);
-    await sendEncryptedMessage(token, member.userId, encrypted, "text", undefined, bundle.deviceId);
+    await distributeGroupKeyToMember(storage, token, device, userId, groupId, keyBase64, member.userId);
   }
+}
+
+export async function distributeGroupKeyToMember(
+  storage: StorageAdapter,
+  token: string,
+  device: VaultDevice,
+  userId: string,
+  groupId: string,
+  keyBase64: string,
+  targetUserId: string
+): Promise<void> {
+  if (targetUserId === userId) return;
+  const bundle = await fetchPreKeyBundle(targetUserId);
+  const plaintext = serializeMessageContent({
+    type: "group_key",
+    groupKey: { groupId, key: keyBase64 },
+  });
+  const encrypted = await device.encrypt(targetUserId, bundle.deviceId, plaintext, bundle);
+  await sendEncryptedMessage(token, targetUserId, encrypted, "text", undefined, bundle.deviceId);
+}
+
+export async function shareGroupKeyWithMember(
+  storage: StorageAdapter,
+  token: string,
+  device: VaultDevice,
+  userId: string,
+  groupId: string,
+  targetUserId: string
+): Promise<void> {
+  const keyBase64 = await getStoredGroupKey(storage, userId, groupId);
+  if (!keyBase64) throw new Error("Group encryption key not found on this device");
+  await distributeGroupKeyToMember(storage, token, device, userId, groupId, keyBase64, targetUserId);
 }
 
 export async function reshareGroupKey(

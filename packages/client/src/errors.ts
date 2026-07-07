@@ -40,6 +40,12 @@ export function friendlyError(err: unknown): string {
     return "Encryption keys on this device are out of sync. Log out and sign in again to re-link this device.";
   }
   if (err instanceof ClientApiError) {
+    if (err.status === 503 || err.code === "DB_BUSY") {
+      return "Server is busy. Wait a few seconds and try again.";
+    }
+    if (err.status >= 500) {
+      return "Server error. If this keeps happening, restart the API (pnpm dev:stack).";
+    }
     switch (err.code) {
       case "USERNAME_TAKEN":
         return "That username is already taken.";
@@ -87,6 +93,12 @@ export function friendlyError(err: unknown): string {
         return "Unblock this user to send messages.";
       case "NOT_ADMIN":
         return "Admin access required.";
+      case "ALREADY_MEMBER":
+        return "That user is already in this community.";
+      case "CHANNEL_ACCESS_DENIED":
+        return "You do not have access to this channel.";
+      case "INVALID_CHANNEL_NAME":
+        return "Channel name must be 2–32 characters (lowercase letters, numbers, - or _).";
       case "INVITE_EXPIRED":
         return "This invite has expired.";
       case "INVITE_EXHAUSTED":

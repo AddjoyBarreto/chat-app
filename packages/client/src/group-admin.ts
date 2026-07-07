@@ -3,6 +3,7 @@ import type { MessageContent, MessageType } from "@vaultchat/protocol";
 import { fetchPreKeyBundle, sendEncryptedMessage } from "./api.js";
 import { getStoredGroupKey, loadGroupCipher } from "./group-keys.js";
 import { fetchGroupMembers, sendGroupMessage } from "./groups.js";
+import { validateMessageContent } from "./messages.js";
 import type { StorageAdapter } from "./storage.js";
 
 export async function distributeGroupKey(
@@ -82,6 +83,10 @@ export async function sendGroupContentMessage(
   content: MessageContent,
   messageType: MessageType
 ): Promise<{ messageId: string; createdAt: string }> {
+  if (messageType === "text") {
+    const textError = validateMessageContent(content);
+    if (textError) throw new Error(textError);
+  }
   const cipher = await loadGroupCipher(storage, userId, groupId);
   if (!cipher) throw new Error("Group encryption key not found");
   const payload = await cipher.encrypt(serializeMessageContent(content));

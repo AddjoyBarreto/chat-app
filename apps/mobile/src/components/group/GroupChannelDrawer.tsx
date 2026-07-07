@@ -9,6 +9,13 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import {
+  ChannelTypeIcon,
+  IconChevronDown,
+  IconChevronLeft,
+  IconChevronRight,
+  IconLock,
+} from "@/components/icons/CommunityIcons";
 import { theme } from "@/theme";
 
 interface GroupChannelDrawerProps {
@@ -20,12 +27,6 @@ interface GroupChannelDrawerProps {
   onClose: () => void;
   onBack: () => void;
   onSelectChannel: (channel: ChannelInfo) => void;
-}
-
-function channelIcon(type: ChannelInfo["type"]) {
-  if (type === "voice") return "🔊";
-  if (type === "announcement") return "📢";
-  return "#";
 }
 
 export function GroupChannelDrawer({
@@ -61,11 +62,21 @@ export function GroupChannelDrawer({
           onClose();
         }}
       >
-        <Text style={styles.channelIcon}>{channelIcon(ch.type)}</Text>
+        <View style={styles.channelIcon}>
+          <ChannelTypeIcon
+            type={ch.type}
+            size={18}
+            color={active ? theme.textPrimary : theme.textMuted}
+          />
+        </View>
         <Text style={[styles.channelName, active && styles.channelNameActive]} numberOfLines={1}>
           {ch.name}
         </Text>
-        {ch.isPrivate ? <Text style={styles.lock}>🔒</Text> : null}
+        {ch.isPrivate ? (
+          <View style={styles.lock}>
+            <IconLock size={12} />
+          </View>
+        ) : null}
       </Pressable>
     );
   }
@@ -79,7 +90,9 @@ export function GroupChannelDrawer({
           style={styles.categoryHeader}
           onPress={() => setCollapsed((prev) => ({ ...prev, [cat.id]: !prev[cat.id] }))}
         >
-          <Text style={styles.categoryChevron}>{isCollapsed ? "▶" : "▼"}</Text>
+          <View style={styles.categoryChevron}>
+            {isCollapsed ? <IconChevronRight size={12} /> : <IconChevronDown size={12} />}
+          </View>
           <Text style={styles.categoryName}>{cat.name.toUpperCase()}</Text>
         </Pressable>
         {!isCollapsed && catChannels.map(renderChannel)}
@@ -92,7 +105,7 @@ export function GroupChannelDrawer({
       <View style={styles.overlay}>
         <View style={[styles.drawer, { paddingTop: insets.top }]}>
           <Pressable style={styles.backRow} onPress={() => { onClose(); onBack(); }}>
-            <Text style={styles.backChevron}>‹</Text>
+            <IconChevronLeft size={24} />
             <Text style={styles.backLabel}>Communities</Text>
           </Pressable>
           <View style={styles.serverHeader}>
@@ -133,7 +146,6 @@ const styles = StyleSheet.create({
     paddingVertical: theme.spacing.sm,
     gap: 2,
   },
-  backChevron: { color: theme.textPrimary, fontSize: 28, fontWeight: "300" },
   backLabel: { color: theme.textPrimary, fontSize: theme.fontSize.md, fontWeight: "500" },
   serverHeader: {
     paddingHorizontal: theme.spacing.lg,
@@ -161,7 +173,7 @@ const styles = StyleSheet.create({
     paddingVertical: theme.spacing.xs,
     gap: 4,
   },
-  categoryChevron: { color: theme.textMuted, fontSize: 10, width: 14 },
+  categoryChevron: { width: 14, alignItems: "center" },
   categoryName: {
     color: theme.textMuted,
     fontSize: theme.fontSize.xs,
@@ -177,10 +189,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: theme.spacing.sm,
     paddingVertical: 10,
     borderRadius: theme.radius.sm,
-    gap: 6,
+    gap: 8,
   },
   channelRowActive: { backgroundColor: theme.accentMuted },
-  channelIcon: { color: theme.textMuted, fontSize: theme.fontSize.md, width: 20 },
+  channelIcon: { width: 20, alignItems: "center" },
   channelName: {
     flex: 1,
     color: theme.textSecondary,
@@ -188,5 +200,5 @@ const styles = StyleSheet.create({
     fontWeight: "500",
   },
   channelNameActive: { color: theme.textPrimary },
-  lock: { fontSize: 12 },
+  lock: { opacity: 0.85 },
 });

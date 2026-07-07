@@ -9,6 +9,7 @@ import {
   cacheDecryptedMessage,
   getCachedMessage,
 } from "./message-cache.js";
+import { validateMessageText } from "./message-text.js";
 import type { StorageAdapter } from "./storage.js";
 
 export type MessageStatus = "sent" | "delivered" | "failed" | "decrypt_failed";
@@ -228,6 +229,13 @@ export interface OutgoingEncryptedMessage {
 }
 
 /** Encrypt for every recipient device plus per-device copies for sender's other sessions. */
+export function validateMessageContent(content: MessageContent): string | null {
+  if (content.type === "text" && content.text != null) {
+    return validateMessageText(content.text);
+  }
+  return null;
+}
+
 export async function encryptOutgoingMessage(
   device: VaultDevice,
   senderUserId: string,
@@ -236,6 +244,8 @@ export async function encryptOutgoingMessage(
   recipientBundles: Array<{ deviceId: number; bundle: PreKeyBundleResponse }>,
   ownDeviceBundles: Array<{ deviceId: number; bundle: PreKeyBundleResponse }>
 ): Promise<OutgoingEncryptedMessage> {
+  const textError = validateMessageContent(content);
+  if (textError) throw new Error(textError);
   const plaintext = serializeMessageContent(content);
   const recipientCiphertexts: Record<string, string> = {};
   let recipientPayload: import("@vaultchat/crypto").EncryptedPayload | undefined;

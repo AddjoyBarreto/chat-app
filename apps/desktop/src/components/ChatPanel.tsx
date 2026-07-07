@@ -1,5 +1,6 @@
 import type { useCallSession, useFriends, useVaultChat } from "@vaultchat/chat-react";
-import { presenceLabel } from "@vaultchat/client";
+import { presenceLabel, MESSAGE_MARKDOWN_HINT } from "@vaultchat/client";
+import { MarkdownText, MarkdownComposerField } from "@vaultchat/chat-react";
 import { Virtuoso } from "react-virtuoso";
 import { groupByDate } from "@vaultchat/client";
 import { useMemo } from "react";
@@ -122,7 +123,7 @@ export function ChatPanel({
               const body =
                 failed
                   ? null
-                  : m.content.type === "text"
+                  : m.content.type === "text" && m.content.text
                     ? m.content.text
                     : "📎 Attachment";
 
@@ -132,9 +133,9 @@ export function ChatPanel({
                     <div className={`dc-bubble dc-bubble--out${failed ? " dc-bubble--failed" : ""}`}>
                       {failed ? (
                         <span className="dc-bubble__failed-text">Unable to decrypt</span>
-                      ) : (
-                        <span className="dc-bubble__text">{body}</span>
-                      )}
+                      ) : body ? (
+                        <MarkdownText text={body} className="dc-bubble__text" />
+                      ) : null}
                       <span className="dc-bubble__time">{formatTime(m.time)}</span>
                     </div>
                   </div>
@@ -154,9 +155,11 @@ export function ChatPanel({
                         <LockIcon />
                         <span>Unable to decrypt this message</span>
                       </div>
-                    ) : (
-                      <p className="dc-msg__text">{body}</p>
-                    )}
+                    ) : body ? (
+                      <p className="dc-msg__text">
+                        <MarkdownText text={body} />
+                      </p>
+                    ) : null}
                   </div>
                 </div>
               );
@@ -173,12 +176,14 @@ export function ChatPanel({
         }}
       >
         <div className="dc-composer__bar">
-          <input
-            className="dc-composer__input"
-            placeholder={`Message @${peer.username}`}
+          <MarkdownComposerField
             value={chat.draft}
-            onChange={(e) => chat.setDraft(e.target.value)}
+            onChange={chat.setDraft}
+            fieldClassName="dc-composer-field"
+            inputClassName="dc-composer__input"
+            placeholder={`Message @${peer.username} (${MESSAGE_MARKDOWN_HINT})`}
             disabled={chat.sending}
+            rows={1}
           />
           <button
             type="submit"

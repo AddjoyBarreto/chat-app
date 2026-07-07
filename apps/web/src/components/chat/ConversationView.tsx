@@ -3,6 +3,8 @@
 import { useRef } from "react";
 import { VirtualMessageList } from "./VirtualMessageList";
 import type { DisplayMessage } from "@/lib/messages";
+import { MESSAGE_MARKDOWN_HINT } from "@vaultchat/client";
+import { MarkdownComposerField } from "@vaultchat/chat-react";
 
 interface ConversationViewProps {
   peerUsername: string;
@@ -148,14 +150,13 @@ export function ConversationView({
         >
           📎
         </button>
-        <textarea
-          className="vc-composer__input"
+        <MarkdownComposerField
           value={draft}
-          onChange={(e) => onDraftChange(e.target.value)}
+          onChange={onDraftChange}
           onKeyDown={handleKeyDown}
-          placeholder="Message"
-          rows={1}
+          placeholder={`Message (${MESSAGE_MARKDOWN_HINT})`}
           disabled={sending}
+          rows={1}
         />
         <button
           type="submit"

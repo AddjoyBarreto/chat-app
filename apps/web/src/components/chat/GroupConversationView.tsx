@@ -2,6 +2,8 @@
 
 import type { MessageContent } from "@vaultchat/protocol";
 import { formatMessageTime, groupByDate } from "@/lib/messages";
+import { MarkdownText, MarkdownComposerField } from "@vaultchat/chat-react";
+import { MESSAGE_MARKDOWN_HINT } from "@vaultchat/client";
 import { useEffect, useRef } from "react";
 import { MediaAttachment } from "./MediaAttachment";
 
@@ -60,7 +62,7 @@ function GroupMessageBody({
     return <span>🔒 Encrypted attachment</span>;
   }
 
-  if (content.text) return <span>{content.text}</span>;
+  if (content.text) return <MarkdownText text={content.text} className="vc-bubble__text" />;
   return null;
 }
 
@@ -206,13 +208,12 @@ export function GroupConversationView({
             </button>
           </>
         )}
-        <textarea
-          className="vc-composer__input"
+        <MarkdownComposerField
           value={draft}
-          onChange={(e) => onDraftChange(e.target.value)}
-          placeholder={hasGroupKey ? "Group message" : "Waiting for encryption key…"}
-          rows={1}
+          onChange={onDraftChange}
+          placeholder={hasGroupKey ? `Group message (${MESSAGE_MARKDOWN_HINT})` : "Waiting for encryption key…"}
           disabled={sending || !hasGroupKey}
+          rows={1}
         />
         <button
           type="submit"

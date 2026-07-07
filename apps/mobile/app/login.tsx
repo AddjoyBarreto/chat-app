@@ -15,6 +15,7 @@ import { AuthScreen } from "@/components/ui/AuthScreen";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { useApp, storage } from "@/context/AppContext";
+import { ensureMobileCrypto } from "@/lib/mobileCrypto";
 import { theme } from "@/theme";
 
 export default function LoginScreen() {
@@ -45,6 +46,7 @@ export default function LoginScreen() {
     const hint = await getLoginHint(storage, id);
 
     try {
+      ensureMobileCrypto();
       const preLogin = await loginOnServer({
         identifier: id,
         password,

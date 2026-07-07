@@ -2,9 +2,6 @@ const { Buffer } = require("buffer");
 
 global.Buffer = Buffer;
 
-const { installWebCryptoPolyfill } = require("./webcrypto-polyfill");
-installWebCryptoPolyfill();
-
 /** Expo's TextDecoder reports utf-16le but throws on decode — must test decode. */
 function nativeTextDecoderSupportsUtf16Le() {
   if (typeof global.TextDecoder !== "function") return false;

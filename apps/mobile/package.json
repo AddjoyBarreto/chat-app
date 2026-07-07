@@ -4,7 +4,7 @@
   "private": true,
   "main": "index.js",
   "scripts": {
-    "dev": "expo start",
+    "dev": "pnpm --filter @vaultchat/client build && pnpm --filter @vaultchat/crypto build && expo start",
     "android": "expo start --android",
     "ios": "expo start --ios",
     "lint": "tsc --noEmit"
@@ -12,8 +12,8 @@
   "dependencies": {
     "@babel/runtime": "^7.27.4",
     "@expo/metro-runtime": "~4.0.1",
-    "@noble/ciphers": "^2.2.0",
-    "@noble/hashes": "^2.2.0",
+    "@expo/vector-icons": "^15.1.1",
+    "@privacyresearch/libsignal-protocol-typescript": "^0.0.16",
     "@vaultchat/chat-react": "workspace:*",
     "@vaultchat/client": "workspace:*",
     "@vaultchat/crypto": "workspace:*",

@@ -15,3 +15,22 @@ export {
   loadGroupRailOrder,
   saveGroupRailOrder,
 } from "./group-rail-order.js";
+export {
+  ChannelTypeIcon,
+  IconAnnouncement,
+  IconChevronDown,
+  IconChevronLeft,
+  IconClose,
+  IconFolder,
+  IconHash,
+  IconInvite,
+  IconKey,
+  IconLock,
+  IconPlus,
+  IconSend,
+  IconSettings,
+  IconTrash,
+  IconVoice,
+} from "./CommunityIcons.js";
+export { MarkdownText } from "./MarkdownText.js";
+export { MarkdownComposerField } from "./MarkdownComposerField.js";

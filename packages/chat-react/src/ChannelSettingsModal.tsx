@@ -8,6 +8,7 @@ import {
 } from "@vaultchat/client";
 import type { ChannelInfo, GroupMemberInfo } from "@vaultchat/protocol";
 import { useCallback, useEffect, useState } from "react";
+import { ChannelTypeIcon, IconClose, IconTrash } from "./CommunityIcons.js";
 
 type SettingsTab = "overview" | "permissions";
 
@@ -140,7 +141,6 @@ export function ChannelSettingsModal({
     }
   }
 
-  const channelIcon = channel.type === "voice" ? "🔊" : "#";
   const categoryLabel =
     channel.type === "voice" ? "VOICE CHANNELS" : "TEXT CHANNELS";
 
@@ -157,7 +157,9 @@ export function ChannelSettingsModal({
       <div className="vc-channel-settings">
         <nav className="vc-channel-settings__nav" aria-label="Channel settings navigation">
           <div className="vc-channel-settings__nav-header">
-            <span className="vc-channel-settings__nav-icon">{channelIcon}</span>
+            <span className="vc-channel-settings__nav-icon">
+              <ChannelTypeIcon type={channel.type} size={18} />
+            </span>
             <span className="vc-channel-settings__nav-label">{categoryLabel}</span>
           </div>
 
@@ -183,7 +185,7 @@ export function ChannelSettingsModal({
               onClick={() => void handleDelete()}
               disabled={deleting}
             >
-              <span>🗑</span> Delete Channel
+              <IconTrash size={16} /> Delete Channel
             </button>
           )}
         </nav>
@@ -197,7 +199,7 @@ export function ChannelSettingsModal({
               onClick={onClose}
               aria-label="Close"
             >
-              <span aria-hidden>✕</span>
+              <IconClose size={18} />
               <span className="vc-channel-settings__esc">ESC</span>
             </button>
           </header>
@@ -212,7 +214,7 @@ export function ChannelSettingsModal({
               <div className="vc-banner vc-banner--info" role="status">
                 {success}
                 <button type="button" className="vc-banner__dismiss" onClick={() => setSuccess(null)}>
-                  ✕
+                  <IconClose size={14} />
                 </button>
               </div>
             )}
@@ -335,7 +337,7 @@ export function ChannelSettingsModal({
                               onClick={() => setSelectedUserId("")}
                               aria-label="Clear selection"
                             >
-                              ✕
+                              <IconClose size={14} />
                             </button>
                           </div>
                         )}

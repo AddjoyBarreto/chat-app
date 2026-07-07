@@ -1,6 +1,6 @@
 import type { useFriends } from "@vaultchat/chat-react";
 import type { CommunitySettingsTab } from "@vaultchat/chat-react";
-import { ChannelSettingsModal, CommunityChannelSidebar, CommunitySettingsModal, CreateChannelModal, PresenceDot } from "@vaultchat/chat-react";
+import { ChannelSettingsModal, CommunityChannelSidebar, CommunitySettingsModal, CreateChannelModal, ChannelTypeIcon, IconInvite, IconPlus, IconSend, IconSettings, MarkdownText, MarkdownComposerField, PresenceDot } from "@vaultchat/chat-react";
 import {
   createChannelCategory,
   createGroup,
@@ -23,6 +23,7 @@ import {
   saveGroupKey,
   sendGroupContentMessage,
   shareGroupKeyWithMember,
+  MESSAGE_MARKDOWN_HINT,
 } from "@vaultchat/client";
 import { GroupCipher, type VaultDevice } from "@vaultchat/crypto";
 import type {
@@ -338,7 +339,7 @@ export function GroupServerView({
         activeChannelId={activeChannel?.id}
         isAdmin={isAdmin}
         onBack={onBack}
-        backLabel="‹ Groups"
+        backLabel="Groups"
         onOpenServerSettings={
           isAdmin
             ? (tab) => {
@@ -372,7 +373,9 @@ export function GroupServerView({
         {activeChannel?.type === "text" && (
           <>
             <header className="dc-gc-header">
-              <span className="dc-gc-header__hash">#</span>
+              <span className="dc-gc-header__hash">
+                <ChannelTypeIcon type="text" size={22} />
+              </span>
               <h1 className="dc-gc-header__title">{activeChannel.name}</h1>
               {isAdmin && (
                 <button
@@ -381,7 +384,7 @@ export function GroupServerView({
                   title="Channel settings"
                   onClick={() => setChannelSettings(activeChannel)}
                 >
-                  ⚙
+                  <IconSettings size={18} />
                 </button>
               )}
             </header>
@@ -413,7 +416,7 @@ export function GroupServerView({
                         </span>
                       </div>
                       <p className={`dc-gc-msg__text${m.failed ? " dc-gc-msg__text--failed" : ""}`}>
-                        {m.text}
+                        <MarkdownText text={m.text} />
                       </p>
                     </div>
                   </div>
@@ -429,19 +432,25 @@ export function GroupServerView({
               }}
             >
               <div className="dc-composer__bar">
-                <input
-                  className="dc-composer__input"
-                  placeholder={`Message #${activeChannel.name}`}
+                <MarkdownComposerField
                   value={draft}
-                  onChange={(e) => setDraft(e.target.value)}
+                  onChange={setDraft}
+                  fieldClassName="dc-composer-field"
+                  inputClassName="dc-composer__input"
+                  placeholder={
+                    hasGroupKey
+                      ? `Message #${activeChannel.name} (${MESSAGE_MARKDOWN_HINT})`
+                      : "Waiting for encryption key…"
+                  }
                   disabled={sending || !hasGroupKey}
+                  rows={1}
                 />
                 <button
                   type="submit"
                   className="dc-composer__send"
                   disabled={!draft.trim() || sending || !hasGroupKey}
                 >
-                  ➤
+                  <IconSend size={18} />
                 </button>
               </div>
             </form>
@@ -451,7 +460,9 @@ export function GroupServerView({
         {activeChannel?.type === "voice" && (
           <>
             <header className="dc-gc-header">
-              <span className="dc-gc-header__hash">🔊</span>
+              <span className="dc-gc-header__hash">
+                <ChannelTypeIcon type="voice" size={22} />
+              </span>
               <h1 className="dc-gc-header__title">{activeChannel.name}</h1>
             </header>
             <div className="dc-gc-voice">
@@ -503,7 +514,7 @@ export function GroupServerView({
                   setSettingsOpen(true);
                 }}
               >
-                +
+                <IconPlus size={16} />
               </button>
               <button
                 type="button"
@@ -515,7 +526,7 @@ export function GroupServerView({
                   setSettingsOpen(true);
                 }}
               >
-                ↗
+                <IconInvite size={16} />
               </button>
               <button
                 type="button"
@@ -527,7 +538,7 @@ export function GroupServerView({
                   setSettingsOpen(true);
                 }}
               >
-                ⚙
+                <IconSettings size={16} />
               </button>
             </div>
           )}

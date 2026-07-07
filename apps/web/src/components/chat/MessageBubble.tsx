@@ -2,6 +2,7 @@
 
 import type { DisplayMessage } from "@/lib/messages";
 import { formatMessageTime } from "@/lib/messages";
+import { MarkdownText } from "@vaultchat/chat-react";
 import { MediaAttachment } from "./MediaAttachment";
 
 export function MessageBubble({
@@ -57,7 +58,9 @@ export function MessageBubble({
             {message.content.type === "media" && message.content.media && !authToken && (
               <span>🔒 Encrypted attachment</span>
             )}
-            {message.content.text && <span className="vc-bubble__text">{message.content.text}</span>}
+            {message.content.text && (
+              <MarkdownText text={message.content.text} className="vc-bubble__text" />
+            )}
           </>
         )}
         <div className="vc-bubble__meta">

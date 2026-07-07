@@ -13,6 +13,7 @@ import {
 import type { GroupMemberInfo, InviteInfo } from "@vaultchat/protocol";
 import { useCallback, useEffect, useState } from "react";
 import { FriendMembersInput } from "./FriendMembersInput.js";
+import { IconClose } from "./CommunityIcons.js";
 
 export type CommunitySettingsTab = "overview" | "members" | "invites";
 
@@ -437,7 +438,7 @@ export function CommunitySettingsModal({
               onClick={onClose}
               aria-label="Close server settings"
             >
-              <span aria-hidden>✕</span>
+              <IconClose size={18} />
               <span className="vc-server-settings__esc">ESC</span>
             </button>
           </header>
@@ -452,7 +453,7 @@ export function CommunitySettingsModal({
               <div className="vc-banner vc-banner--info" role="status">
                 {success}
                 <button type="button" className="vc-banner__dismiss" onClick={() => setSuccess(null)}>
-                  ✕
+                  <IconClose size={14} />
                 </button>
               </div>
             )}

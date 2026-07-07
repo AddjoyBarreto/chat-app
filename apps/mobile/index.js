@@ -1,10 +1,12 @@
 const { ensureTextEncodingPolyfill } = require("./polyfills");
+const { ensureWebCryptoPolyfill } = require("./webcrypto-polyfill");
 
 require("@expo/metro-runtime");
 require("expo/src/Expo.fx");
 
-// Expo winter installs a utf-8-only TextDecoder — replace for Signal/crypto utf-16le.
+// Expo winter replaces TextDecoder and may touch crypto — reinstall after Expo loads.
 ensureTextEncodingPolyfill();
+ensureWebCryptoPolyfill();
 
 const { App } = require("expo-router/build/qualified-entry");
 const { renderRootComponent } = require("expo-router/build/renderRootComponent");

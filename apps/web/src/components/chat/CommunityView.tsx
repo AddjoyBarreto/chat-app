@@ -2,7 +2,22 @@
 
 import type { ChannelCategoryInfo, ChannelInfo, GroupMemberInfo } from "@vaultchat/protocol";
 import type { FriendPick } from "@vaultchat/client";
-import { PresenceDot } from "@vaultchat/chat-react";
+import { PresenceDot, MarkdownText, MarkdownComposerField } from "@vaultchat/chat-react";
+import {
+  ChannelTypeIcon,
+  CreateChannelModal,
+  ChannelSettingsModal,
+  CommunityChannelSidebar,
+  CommunitySettingsModal,
+  IconClose,
+  IconInvite,
+  IconKey,
+  IconPlus,
+  IconSend,
+  IconSettings,
+  type CommunitySettingsTab,
+} from "@vaultchat/chat-react";
+import type { ChannelType } from "@vaultchat/protocol";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   decryptIncomingGroupMessage,
@@ -11,8 +26,6 @@ import {
   sendGroupTextMessage,
 } from "@/lib/groups";
 import { friendlyError } from "@/lib/errors";
-import { CreateChannelModal, ChannelSettingsModal, CommunityChannelSidebar, CommunitySettingsModal, type CommunitySettingsTab } from "@vaultchat/chat-react";
-import type { ChannelType } from "@vaultchat/protocol";
 
 interface CommunityMessage {
   id: string;
@@ -344,7 +357,7 @@ export function CommunityView({
           <div className="vc-banner vc-banner--warning" role="alert">
             {error}
             <button type="button" className="vc-banner__dismiss" onClick={() => setError(null)}>
-              ✕
+              <IconClose size={14} />
             </button>
           </div>
         )}
@@ -359,7 +372,9 @@ export function CommunityView({
         {activeChannel?.type === "voice" && (
           <div className="vc-community-voice">
             <header className="vc-community-channel-header">
-              <span className="vc-community-channel-header__icon">🔊</span>
+              <span className="vc-community-channel-header__icon">
+                <ChannelTypeIcon type="voice" size={22} />
+              </span>
               <h1>{activeChannel.name}</h1>
             </header>
             <div className="vc-community-voice__body">
@@ -372,7 +387,9 @@ export function CommunityView({
         {activeChannel?.type === "text" && (
           <>
             <header className="vc-community-channel-header">
-              <span className="vc-community-channel-header__icon">#</span>
+              <span className="vc-community-channel-header__icon">
+                <ChannelTypeIcon type="text" size={22} />
+              </span>
               <h1>{activeChannel.name}</h1>
               <span className="vc-community-channel-header__meta">End-to-end encrypted</span>
               {isAdmin && hasGroupKey && (
@@ -383,7 +400,7 @@ export function CommunityView({
                   disabled={resharing}
                   title="Re-share encryption key with all members"
                 >
-                  {resharing ? "…" : "🔑"}
+                  {resharing ? "…" : <IconKey size={18} />}
                 </button>
               )}
             </header>
@@ -434,7 +451,7 @@ export function CommunityView({
                           })}
                         </time>
                       </div>
-                      <p>{m.text}</p>
+                      <MarkdownText text={m.text} className="vc-bubble__text" />
                     </div>
                   </div>
                 ))
@@ -448,14 +465,15 @@ export function CommunityView({
                 void handleSend();
               }}
             >
-              <input
-                className="vc-community-composer__input"
+              <MarkdownComposerField
+                value={draft}
+                onChange={setDraft}
+                inputClassName="vc-community-composer__input"
                 placeholder={
                   hasGroupKey ? `Message #${activeChannel.name}` : "Waiting for encryption key…"
                 }
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
                 disabled={sending || !hasGroupKey}
+                rows={1}
               />
               <button
                 type="submit"
@@ -463,7 +481,7 @@ export function CommunityView({
                 disabled={!draft.trim() || sending || !hasGroupKey}
                 aria-label="Send"
               >
-                {sending ? <span className="vc-spinner" /> : "➤"}
+                {sending ? <span className="vc-spinner" /> : <IconSend size={18} />}
               </button>
             </form>
           </>
@@ -485,7 +503,7 @@ export function CommunityView({
                   setSettingsOpen(true);
                 }}
               >
-                +
+                <IconPlus size={16} />
               </button>
               <button
                 type="button"
@@ -497,7 +515,7 @@ export function CommunityView({
                   setSettingsOpen(true);
                 }}
               >
-                ↗
+                <IconInvite size={16} />
               </button>
               <button
                 type="button"
@@ -509,7 +527,7 @@ export function CommunityView({
                   setSettingsOpen(true);
                 }}
               >
-                ⚙
+                <IconSettings size={16} />
               </button>
             </div>
           )}

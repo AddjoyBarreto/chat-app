@@ -33,3 +33,12 @@ export * from "./device-display.js";
 export * from "./presence.js";
 export { ReadStateManager } from "./read-state.js";
 export { MessageInbox } from "./message-inbox.js";
+export {
+  MAX_MESSAGE_TEXT_LENGTH,
+  MESSAGE_MARKDOWN_HINT,
+  validateMessageText,
+  remainingMessageChars,
+  clampMessageText,
+} from "./message-text.js";
+export { parseDiscordMarkdown, parseInlineMarkdown, hasMarkdownSyntax, type MarkdownRun, type MarkdownBlock } from "./markdown.js";
+export { validateMessageContent } from "./messages.js";

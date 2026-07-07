@@ -34,6 +34,15 @@ import {
 } from "react";
 import { setupPushNotifications } from "@/lib/push";
 import { createSecureStorageAdapter } from "@/lib/storage";
+import { ensureMobileCrypto, verifyMobileCrypto } from "@/lib/mobileCrypto";
+
+// Re-assert crypto/text polyfills after fast refresh (Expo may overwrite globals).
+function ensureRuntimePolyfills() {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { ensureTextEncodingPolyfill } = require("../../polyfills");
+  ensureTextEncodingPolyfill();
+  ensureMobileCrypto();
+}
 
 interface AppContextValue {
   session: StoredSession | null;
@@ -129,7 +138,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (!dev || !sess) return;
 
       if (inboxRef.current.hasProcessed(envelope.id)) return;
-      inboxRef.current.markProcessed(envelope.id);
 
       const readState = await ensureReadState(sess);
       const peerId = inboxRef.current.peerIdForEnvelope(envelope, sess.userId);
@@ -140,20 +148,27 @@ export function AppProvider({ children }: { children: ReactNode }) {
           userId: sess.userId,
           myDeviceId: sess.deviceId,
         });
-        await persistDevice(storage, dev, sess.userId);
+
+        if (display.status !== "decrypt_failed") {
+          await persistDevice(storage, dev, sess.userId);
+        }
+
         if (await captureGroupKeyFromContent(storage, sess.userId, display.content)) {
+          inboxRef.current.markProcessed(envelope.id);
           setGroupKeysVersion((v) => v + 1);
           return;
         }
-        if (display.content.type === "group_key") return;
+        if (display.content.type === "group_key") {
+          inboxRef.current.markProcessed(envelope.id);
+          return;
+        }
 
+        inboxRef.current.markProcessed(envelope.id);
         setPreviews((p) => ({ ...p, [peerId]: previewText(display) }));
 
         const viewingPeer = activePeerIdRef.current === peerId;
 
-        if (display.status !== "decrypt_failed") {
-          for (const handler of onMessageHandlers.current) handler(display, envelope);
-        }
+        for (const handler of onMessageHandlers.current) handler(display, envelope);
 
         if (viewingPeer) {
           readState.markPeerRead(peerId, envelope.createdAt);
@@ -176,11 +191,37 @@ export function AppProvider({ children }: { children: ReactNode }) {
           // non-fatal
         }
       } catch {
-        // ignore undecryptable frames
+        // Leave unprocessed so inbox catch-up can retry.
       }
     },
     [ensureReadState]
   );
+
+  // Keep syncMissedInbox referencing the latest handler.
+  const handleIncomingRef = useRef(handleIncomingEnvelope);
+  handleIncomingRef.current = handleIncomingEnvelope;
+
+  const syncMissedInbox = useCallback(async () => {
+    const dev = deviceRef.current;
+    const sess = sessionRef.current;
+    if (!dev || !sess?.token || !sess.emailVerified) return;
+
+    const readState = await ensureReadState(sess);
+    try {
+      const { messages } = await fetchInbox(sess.token);
+      for (const envelope of messages) {
+        if (inboxRef.current.hasProcessed(envelope.id)) continue;
+        const peerId = inboxRef.current.peerIdForEnvelope(envelope, sess.userId);
+        if (readState.isPeerMessageRead(peerId, envelope.createdAt)) {
+          inboxRef.current.markProcessed(envelope.id);
+          continue;
+        }
+        await handleIncomingRef.current(envelope);
+      }
+    } catch {
+      // non-fatal catch-up
+    }
+  }, [ensureReadState]);
 
   const refreshConversations = useCallback(async () => {
     if (!session) return;
@@ -216,6 +257,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     void (async () => {
       try {
+        ensureRuntimePolyfills();
+        await verifyMobileCrypto();
         const sess = await loadSession(storage);
         if (sess) {
           const me = await fetchMe(sess.token);
@@ -258,7 +301,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [chatUnreadCount]);
 
   useEffect(() => {
-    if (!session) {
+    if (!session?.token || !session.emailVerified || !device) {
       gatewayRef.current?.close();
       gatewayRef.current = null;
       return;
@@ -269,31 +312,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
       session.token,
       {
         onMessage: (envelope) => {
-          void handleIncomingEnvelope(envelope);
+          void handleIncomingRef.current(envelope);
         },
         onServerEvent: (event) => {
           for (const handler of onServerEventHandlers.current) handler(event);
         },
         onAuthOk: () => {
-          void (async () => {
-            const sess = sessionRef.current;
-            if (!sess) return;
-            const readState = await ensureReadState(sess);
-            try {
-              const { messages } = await fetchInbox(sess.token);
-              for (const envelope of messages) {
-                if (inboxRef.current.hasProcessed(envelope.id)) continue;
-                const peerId = inboxRef.current.peerIdForEnvelope(envelope, sess.userId);
-                if (readState.isPeerMessageRead(peerId, envelope.createdAt)) {
-                  inboxRef.current.markProcessed(envelope.id);
-                  continue;
-                }
-                await handleIncomingEnvelope(envelope);
-              }
-            } catch {
-              // non-fatal catch-up
-            }
-          })();
+          void syncMissedInbox();
         },
         onAuthError: () => {
           void logout();
@@ -303,7 +328,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
     );
 
     return () => gatewayRef.current?.close();
-  }, [session?.token, handleIncomingEnvelope, ensureReadState, logout]);
+  }, [session?.token, session?.emailVerified, device, syncMissedInbox, logout]);
+
+  // Catch messages that arrived before device keys finished loading.
+  useEffect(() => {
+    if (!session?.token || !session.emailVerified || !device) return;
+    void syncMissedInbox();
+  }, [session?.token, session?.emailVerified, device, syncMissedInbox]);
 
   useEffect(() => {
     if (session) void refreshConversations();

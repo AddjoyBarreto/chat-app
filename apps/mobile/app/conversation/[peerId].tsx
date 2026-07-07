@@ -35,8 +35,10 @@ import { useApp, storage } from "@/context/AppContext";
 import { useCall } from "@/context/CallContext";
 import { MediaBubble } from "@/components/MediaBubble";
 import { ChatComposer } from "@/components/ChatComposer";
+import { MarkdownText } from "@/components/MarkdownText";
 import { ChatScreenLayout } from "@/components/ChatScreenLayout";
 import { pickAndPrepareMedia } from "@/lib/media";
+import { ensureMobileCrypto } from "@/lib/mobileCrypto";
 import { callsSupported } from "@/lib/webrtc";
 import { theme } from "@/theme";
 
@@ -225,6 +227,7 @@ export default function ConversationScreen() {
     });
 
     try {
+      ensureMobileCrypto();
       const [peerBundles, ownBundles] = await Promise.all([
         fetchRecipientDeviceBundles(peerId),
         fetchOwnDeviceBundles(session.token, session.userId),
@@ -358,7 +361,7 @@ export default function ConversationScreen() {
                 <MediaBubble token={session.token} media={item.content.media} />
               )}
               {item.content.text && (
-                <Text style={styles.bubbleText}>{item.content.text}</Text>
+                <MarkdownText text={item.content.text} style={styles.bubbleText} />
               )}
             </>
           )}

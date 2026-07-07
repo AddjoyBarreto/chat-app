@@ -10,6 +10,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Avatar } from "@/components/ui/Avatar";
+import { IconClose } from "@/components/icons/CommunityIcons";
 import { PresenceBadge } from "@/components/PresenceBadge";
 import { theme } from "@/theme";
 
@@ -62,7 +63,7 @@ export function GroupMembersSheet({
             <Text style={styles.title}>Members</Text>
             <Text style={styles.subtitle}>{communityName}</Text>
             <Pressable onPress={onClose} hitSlop={12}>
-              <Text style={styles.close}>✕</Text>
+              <IconClose size={22} />
             </Pressable>
           </View>
           <ScrollView contentContainerStyle={styles.list}>

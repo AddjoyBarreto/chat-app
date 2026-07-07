@@ -1,3 +1,4 @@
+import { clampMessageText, MAX_MESSAGE_TEXT_LENGTH } from "@vaultchat/client";
 import { useRef } from "react";
 import {
   ActivityIndicator,
@@ -9,6 +10,9 @@ import {
   View,
 } from "react-native";
 import { theme } from "@/theme";
+import { IconSend } from "@/components/icons/CommunityIcons";
+import { MarkdownText } from "@/components/MarkdownText";
+import { messageHasMarkdownPreview } from "@/lib/messageMarkdown";
 
 const INPUT_MIN_HEIGHT = 44;
 const INPUT_MAX_HEIGHT = 120;
@@ -40,6 +44,7 @@ export function ChatComposer({
   const inputRef = useRef<TextInput>(null);
   const canSend = value.trim().length > 0 && !sending && !sendDisabled;
   const isEditable = editable && !sending;
+  const showPreview = messageHasMarkdownPreview(value);
 
   return (
     <View style={styles.composer}>
@@ -54,14 +59,15 @@ export function ChatComposer({
         </Pressable>
       ) : null}
 
-      <View style={styles.inputWrap}>
+      <View style={[styles.inputWrap, showPreview && styles.inputWrapPreview]}>
         <TextInput
           ref={inputRef}
           style={styles.input}
           placeholder={placeholder}
           placeholderTextColor={theme.textMuted}
           value={value}
-          onChangeText={onChangeText}
+          onChangeText={(text) => onChangeText(clampMessageText(text))}
+          maxLength={MAX_MESSAGE_TEXT_LENGTH}
           multiline
           scrollEnabled
           blurOnSubmit={false}
@@ -69,11 +75,17 @@ export function ChatComposer({
           editable={isEditable}
           showSoftInputOnFocus
           caretHidden={false}
-          textAlignVertical="center"
+          textAlignVertical="top"
           keyboardType="default"
           autoCorrect
           autoCapitalize="sentences"
         />
+        {showPreview ? (
+          <View style={styles.preview}>
+            <Text style={styles.previewLabel}>Preview</Text>
+            <MarkdownText text={value} style={styles.previewBody} />
+          </View>
+        ) : null}
       </View>
 
       <Pressable
@@ -85,7 +97,7 @@ export function ChatComposer({
         {sending ? (
           <ActivityIndicator size="small" color={theme.bgApp} />
         ) : (
-          <Text style={styles.sendBtnText}>➤</Text>
+          <IconSend size={20} color={theme.bgApp} />
         )}
       </Pressable>
     </View>
@@ -116,15 +128,17 @@ const styles = StyleSheet.create({
   inputWrap: {
     flex: 1,
     minHeight: INPUT_MIN_HEIGHT,
-    maxHeight: INPUT_MAX_HEIGHT,
+    maxHeight: INPUT_MAX_HEIGHT + 80,
     backgroundColor: theme.bgInput,
     borderRadius: theme.radius.pill,
     borderWidth: 1,
     borderColor: theme.border,
-    justifyContent: "center",
+    overflow: "hidden",
+  },
+  inputWrapPreview: {
+    maxHeight: INPUT_MAX_HEIGHT + 120,
   },
   input: {
-    flex: 1,
     width: "100%",
     color: theme.textPrimary,
     fontSize: theme.fontSize.lg,
@@ -136,6 +150,22 @@ const styles = StyleSheet.create({
     maxHeight: INPUT_MAX_HEIGHT,
     ...(Platform.OS === "android" ? { includeFontPadding: false } : null),
   },
+  preview: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: theme.border,
+    paddingHorizontal: theme.spacing.lg,
+    paddingTop: theme.spacing.sm,
+    paddingBottom: theme.spacing.md,
+  },
+  previewLabel: {
+    fontSize: theme.fontSize.xs,
+    fontWeight: "600",
+    color: theme.textMuted,
+    textTransform: "uppercase",
+    letterSpacing: 0.6,
+    marginBottom: theme.spacing.xs,
+  },
+  previewBody: {},
   sendBtn: {
     width: 44,
     height: INPUT_MIN_HEIGHT,

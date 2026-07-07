@@ -2,6 +2,16 @@
 
 import type { ChannelCategoryInfo, ChannelInfo, ChannelType } from "@vaultchat/protocol";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  ChannelTypeIcon,
+  IconChevronDown,
+  IconChevronLeft,
+  IconFolder,
+  IconInvite,
+  IconLock,
+  IconPlus,
+  IconSettings,
+} from "./CommunityIcons.js";
 
 export interface CommunityChannelSidebarProps {
   communityName: string;
@@ -48,7 +58,7 @@ export function CommunityChannelSidebar({
   onChannelSettings,
   onChannelDelete,
   onSelectChannel,
-  backLabel = "‹ Communities",
+  backLabel = "Communities",
 }: CommunityChannelSidebarProps) {
   const [serverMenuOpen, setServerMenuOpen] = useState(false);
   const [serverMenuPos, setServerMenuPos] = useState<MenuPosition | null>(null);
@@ -153,14 +163,11 @@ export function CommunityChannelSidebar({
           className={`vc-channel-item${active ? " vc-channel-item--active" : ""}`}
           onClick={() => onSelectChannel(ch)}
         >
-          <span
-            className={`vc-channel-item__icon${ch.type === "voice" ? " vc-channel-item__icon--voice" : ""}`}
-            aria-hidden
-          />
+          <ChannelTypeIcon type={ch.type} className="vc-channel-item__icon-svg" size={18} />
           <span className="vc-channel-item__name">{ch.name}</span>
           {ch.isPrivate && (
             <span className="vc-channel-item__lock" title="Private channel" aria-label="Private channel">
-              🔒
+              <IconLock size={12} />
             </span>
           )}
         </button>
@@ -176,7 +183,7 @@ export function CommunityChannelSidebar({
                 onChannelSettings(ch);
               }}
             >
-              <span className="vc-channel-item__action-icon vc-channel-item__action-icon--settings" />
+              <IconSettings size={14} />
             </button>
           </div>
         )}
@@ -211,7 +218,7 @@ export function CommunityChannelSidebar({
           >
             <span>Server Settings</span>
             <span className="vc-server-menu__icon" aria-hidden>
-              ⚙
+              <IconSettings size={16} />
             </span>
           </button>
         )}
@@ -228,7 +235,7 @@ export function CommunityChannelSidebar({
             >
               <span>Create Channel</span>
               <span className="vc-server-menu__icon" aria-hidden>
-                +
+                <IconPlus size={16} />
               </span>
             </button>
             {onCreateCategory && (
@@ -243,7 +250,7 @@ export function CommunityChannelSidebar({
               >
                 <span>Create Category</span>
                 <span className="vc-server-menu__icon" aria-hidden>
-                  📁
+                  <IconFolder size={16} />
                 </span>
               </button>
             )}
@@ -261,7 +268,7 @@ export function CommunityChannelSidebar({
           >
             <span>Invite to Server</span>
             <span className="vc-server-menu__icon" aria-hidden>
-              ↗
+              <IconInvite size={16} />
             </span>
           </button>
         )}
@@ -282,7 +289,7 @@ export function CommunityChannelSidebar({
             aria-label={`${isCollapsed ? "Expand" : "Collapse"} ${cat.name}`}
           >
             <span className={`vc-channel-category__chevron${isCollapsed ? " vc-channel-category__chevron--collapsed" : ""}`}>
-              ▼
+              <IconChevronDown size={10} />
             </span>
             <span className="vc-channel-category__name">{cat.name.toUpperCase()}</span>
           </button>
@@ -294,7 +301,7 @@ export function CommunityChannelSidebar({
               title={`Create ${categoryChannelType(cat)} channel`}
               aria-label={`Create ${categoryChannelType(cat)} channel`}
             >
-              +
+              <IconPlus size={14} />
             </button>
           )}
         </div>
@@ -308,7 +315,8 @@ export function CommunityChannelSidebar({
       <aside className="vc-community-sidebar">
         <div className="vc-community-sidebar__top">
           <button type="button" className="vc-community-sidebar__back" onClick={onBack}>
-            {backLabel}
+            <IconChevronLeft size={18} className="vc-community-sidebar__back-icon" />
+            <span>{backLabel}</span>
           </button>
 
           <div className="vc-server-header">
@@ -322,7 +330,7 @@ export function CommunityChannelSidebar({
             >
               <span className="vc-server-header__name">{communityName}</span>
               <span className="vc-server-header__chevron" aria-hidden>
-                ▼
+                <IconChevronDown size={14} />
               </span>
             </button>
           </div>
@@ -343,7 +351,7 @@ export function CommunityChannelSidebar({
                     title="Create text channel"
                     aria-label="Create text channel"
                   >
-                    +
+                    <IconPlus size={14} />
                   </button>
                 )}
               </div>

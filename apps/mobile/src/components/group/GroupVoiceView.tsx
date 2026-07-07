@@ -1,6 +1,7 @@
 import type { VoicePresenceInfo } from "@vaultchat/protocol";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 import { Avatar } from "@/components/ui/Avatar";
+import { IconVoice } from "@/components/icons/CommunityIcons";
 import { theme } from "@/theme";
 
 interface GroupVoiceViewProps {
@@ -21,7 +22,9 @@ export function GroupVoiceView({
   return (
     <View style={styles.container}>
       <View style={styles.stage}>
-        <Text style={styles.icon}>🔊</Text>
+        <View style={styles.iconWrap}>
+          <IconVoice size={48} color={theme.accent} />
+        </View>
         <Text style={styles.title}>{channelName}</Text>
         <Text style={styles.subtitle}>Hang out together with voice.</Text>
         <Pressable
@@ -62,7 +65,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: theme.border,
   },
-  icon: { fontSize: 48, marginBottom: theme.spacing.md },
+  iconWrap: { marginBottom: theme.spacing.md },
   title: { color: theme.textPrimary, fontSize: theme.fontSize.xl, fontWeight: "700" },
   subtitle: {
     color: theme.textSecondary,

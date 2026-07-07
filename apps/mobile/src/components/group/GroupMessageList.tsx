@@ -1,7 +1,9 @@
 import type { MessageContent } from "@vaultchat/protocol";
 import { FlatList, Image, StyleSheet, Text, View } from "react-native";
 import { Avatar } from "@/components/ui/Avatar";
+import { IconHash, IconLock } from "@/components/icons/CommunityIcons";
 import { MediaBubble } from "@/components/MediaBubble";
+import { MarkdownText } from "@/components/MarkdownText";
 import { theme } from "@/theme";
 
 export interface GroupMessageItem {
@@ -37,14 +39,17 @@ export function GroupMessageList({ messages, channelName, token, hasKey }: Group
       ListEmptyComponent={
         <View style={styles.welcome}>
           <View style={styles.welcomeIcon}>
-            <Text style={styles.welcomeHash}>#</Text>
+            <IconHash size={32} color={theme.textMuted} />
           </View>
           <Text style={styles.welcomeTitle}>Welcome to #{channelName}!</Text>
           <Text style={styles.welcomeText}>
             This is the start of the #{channelName} channel.
             {hasKey ? " Send a message to get the conversation going." : ""}
           </Text>
-          <Text style={styles.welcomeHint}>🔒 Messages are end-to-end encrypted</Text>
+          <View style={styles.welcomeHintRow}>
+            <IconLock size={14} color={theme.textMuted} />
+            <Text style={styles.welcomeHint}>Messages are end-to-end encrypted</Text>
+          </View>
         </View>
       }
       renderItem={({ item }) => (
@@ -71,7 +76,7 @@ export function GroupMessageList({ messages, channelName, token, hasKey }: Group
                   <MediaBubble token={token} media={item.content.media} />
                 )}
                 {item.content.text ? (
-                  <Text style={styles.messageText}>{item.content.text}</Text>
+                  <MarkdownText text={item.content.text} style={styles.messageText} />
                 ) : null}
               </>
             )}
@@ -109,7 +114,13 @@ const styles = StyleSheet.create({
     marginBottom: theme.spacing.sm,
   },
   welcomeText: { color: theme.textSecondary, fontSize: theme.fontSize.md, lineHeight: 22 },
-  welcomeHint: { color: theme.textMuted, fontSize: theme.fontSize.sm, marginTop: theme.spacing.lg },
+  welcomeHintRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginTop: theme.spacing.lg,
+  },
+  welcomeHint: { color: theme.textMuted, fontSize: theme.fontSize.sm },
   messageRow: {
     flexDirection: "row",
     alignItems: "flex-start",

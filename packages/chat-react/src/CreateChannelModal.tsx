@@ -1,6 +1,7 @@
 import { createCommunityChannel, friendlyError } from "@vaultchat/client";
 import type { ChannelInfo, ChannelType } from "@vaultchat/protocol";
 import { useState } from "react";
+import { IconClose } from "./CommunityIcons.js";
 
 export function CreateChannelModal({
   token,
@@ -52,7 +53,7 @@ export function CreateChannelModal({
         <header className="vc-community-settings__header">
           <h2>Create {label}</h2>
           <button type="button" className="vc-community-settings__close" onClick={onClose} aria-label="Close">
-            ✕
+            <IconClose size={18} />
           </button>
         </header>
 

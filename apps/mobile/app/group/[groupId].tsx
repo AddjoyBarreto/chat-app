@@ -33,6 +33,12 @@ import { GroupChannelDrawer } from "@/components/group/GroupChannelDrawer";
 import { GroupMembersSheet } from "@/components/group/GroupMembersSheet";
 import { GroupMessageList, type GroupMessageItem } from "@/components/group/GroupMessageList";
 import { GroupVoiceView } from "@/components/group/GroupVoiceView";
+import {
+  ChannelTypeIcon,
+  IconAccountGroup,
+  IconChevronDown,
+  IconChevronLeft,
+} from "@/components/icons/CommunityIcons";
 import { ChatComposer } from "@/components/ChatComposer";
 import { ChatScreenLayout } from "@/components/ChatScreenLayout";
 import { useApp, storage } from "@/context/AppContext";
@@ -307,8 +313,7 @@ export default function GroupChatScreen() {
     if (channel.type === "voice") setInVoice(false);
   }
 
-  const channelPrefix =
-    activeChannel?.type === "voice" ? "🔊" : activeChannel?.type === "announcement" ? "📢" : "#";
+  const channelType = activeChannel?.type ?? "text";
 
   if (loading) {
     return (
@@ -322,17 +327,19 @@ export default function GroupChatScreen() {
     <SafeAreaView style={styles.safe} edges={["top", "bottom"]}>
       <View style={styles.header}>
         <Pressable style={styles.headerBtn} onPress={goBack} hitSlop={8} accessibilityLabel="Back to communities">
-          <Text style={styles.backIcon}>‹</Text>
+          <IconChevronLeft size={26} />
         </Pressable>
         <Pressable style={styles.headerCenter} onPress={() => setDrawerOpen(true)}>
-          <Text style={styles.channelPrefix}>{channelPrefix}</Text>
+          <View style={styles.channelPrefix}>
+            <ChannelTypeIcon type={channelType} size={20} color={theme.textMuted} />
+          </View>
           <Text style={styles.channelTitle} numberOfLines={1}>
             {activeChannel?.name ?? "Select a channel"}
           </Text>
-          <Text style={styles.channelChevron}>▾</Text>
+          <IconChevronDown size={14} color={theme.textMuted} />
         </Pressable>
         <Pressable style={styles.headerBtn} onPress={() => setMembersOpen(true)} hitSlop={8}>
-          <Text style={styles.membersIcon}>👥</Text>
+          <IconAccountGroup size={22} />
         </Pressable>
       </View>
 
@@ -445,7 +452,7 @@ const styles = StyleSheet.create({
     gap: 4,
     paddingHorizontal: theme.spacing.xs,
   },
-  channelPrefix: { color: theme.textMuted, fontSize: theme.fontSize.lg, fontWeight: "600" },
+  channelPrefix: { width: 22, alignItems: "center" },
   channelTitle: { color: theme.textPrimary, fontSize: theme.fontSize.lg, fontWeight: "600", flex: 1 },
   channelChevron: { color: theme.textMuted, fontSize: 14, marginLeft: 2 },
   banner: {

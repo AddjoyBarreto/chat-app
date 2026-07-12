@@ -169,6 +169,6 @@ setInterval(() => {
   }
 }, 30_000);
 
-server.listen(PORT, () => {
-  console.log(`VaultChat gateway listening on :${PORT}`);
+server.listen(PORT, "0.0.0.0", () => {
+  console.log(`VaultChat gateway listening on 0.0.0.0:${PORT}`);
 });

@@ -10,7 +10,11 @@
     "build:web": "tsc && vite build",
     "build": "tauri build --bundles app",
     "build:dmg": "tauri build --bundles dmg",
+    "build:mac": "tauri build --bundles app,dmg",
+    "build:win": "tauri build --bundles nsis,msi",
     "build:all": "tauri build",
+    "build:prod:mac": "tauri build --bundles app,dmg",
+    "build:prod:win": "tauri build --target x86_64-pc-windows-msvc --bundles nsis",
     "preview": "vite preview --port 3002",
     "lint": "tsc --noEmit",
     "icon": "tauri icon app-icon.png"

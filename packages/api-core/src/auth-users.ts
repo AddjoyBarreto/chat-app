@@ -190,6 +190,9 @@ export async function loginUser(
   ctx: ApiContext,
   body: LoginUserRequest
 ): Promise<LoginUserResponse> {
+  if (!body?.identifier || !body?.password) {
+    throw new ApiCoreError("Identifier and password are required", 400, "INVALID_CREDENTIALS");
+  }
   const identifier = body.identifier.trim().toLowerCase();
   if (!identifier || !body.password) {
     throw new ApiCoreError("Identifier and password are required", 400, "INVALID_CREDENTIALS");

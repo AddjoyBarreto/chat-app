@@ -1,0 +1,39 @@
+# flyctl launch added from .gitignore
+# dependencies
+**/node_modules
+**/.pnpm-store
+
+# build
+**/dist
+**/.next
+**/.turbo
+**/out
+**/apps/desktop/src-tauri/target
+
+# env (keep *.example committed)
+**/.env
+**/.env.local
+**/.env.production
+**/.env.*.local
+
+# logs
+**/*.log
+**/npm-debug.log*
+
+# OS
+**/.DS_Store
+**/Thumbs.db
+
+# IDE
+**/.idea
+**/.vscode/*
+!**/.vscode/extensions.json
+
+# test
+**/coverage
+
+# local encrypted media (dev fallback)
+**/.data
+
+**/keys.md
+fly.toml

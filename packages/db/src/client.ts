@@ -13,14 +13,7 @@ const globalForDb = globalThis as unknown as {
 
 /** Transaction-mode PgBouncer (Supabase :6543) rejects prepared statements. */
 function usesTransactionPooler(connectionString: string): boolean {
-  try {
-    const u = new URL(connectionString);
-    if (u.port === "6543") return true;
-    if (u.searchParams.get("pgbouncer") === "true") return true;
-  } catch {
-    // fall through
-  }
-  return /[?&]pgbouncer=true\b/i.test(connectionString) || /:6543\b/.test(connectionString);
+  return /[?&]pgbouncer=true\b/i.test(connectionString) || /:6543(?:\/|\?|$)/.test(connectionString);
 }
 
 function getPgClient(connectionString: string): PostgresClient {

@@ -9,6 +9,7 @@
     "db:generate": "pnpm --filter @vaultchat/db generate",
     "db:migrate": "node scripts/db-migrate.mjs",
     "db:migrate:prod": "node scripts/db-migrate.mjs --production",
+    "fly:gateway-secrets": "node scripts/fly-gateway-secrets.mjs",
     "db:reset": "node scripts/db-reset.mjs",
     "db:studio": "pnpm --filter @vaultchat/db studio",
     "crypto:test": "pnpm --filter @vaultchat/crypto test",

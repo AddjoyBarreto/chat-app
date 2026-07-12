@@ -10,9 +10,7 @@ Place release binaries here before deploying the web app. They are served as sta
 1. Download artifacts from the **Desktop release** GitHub Action (or build locally).
 2. Rename/copy into this folder with the exact filenames above.
 3. Update `manifest.json` `version` / `updatedAt` if you want the download page to show a new release label.
-4. Deploy the web app so these files ship with `public/`.
-
-Large `.dmg` / `.exe` files are gitignored — copy them onto the deploy machine or include them in your deploy upload. Do not commit binaries to git.
+4. Commit the binaries (or include them in your deploy upload) and deploy the web app so these files ship with `public/`.
 
 ## Safety
 

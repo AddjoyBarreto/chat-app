@@ -35,8 +35,4 @@ coverage
 # local encrypted media (dev fallback)
 .data/
 
-# desktop installers (place locally / on deploy host — see apps/web/public/downloads/README.md)
-apps/web/public/downloads/*.dmg
-apps/web/public/downloads/*.exe
-
 keys.md

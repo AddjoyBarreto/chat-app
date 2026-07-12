@@ -115,13 +115,23 @@ export function friendlyError(err: unknown): string {
     if (
       err.message === "Load failed" ||
       err.message === "Failed to fetch" ||
-      err.message.includes("NetworkError")
+      err.message.includes("NetworkError") ||
+      err.message.includes("error sending request") ||
+      err.message.includes("url not allowed") ||
+      err.message.includes("not allowed on the configured scope")
     ) {
-      return "Cannot reach VaultChat server. Run pnpm dev:stack, then restart the desktop app.";
+      return "Cannot reach VaultChat server. Check your connection, or confirm the desktop app was built with the production API URL.";
     }
     return err.message;
   }
   if (err instanceof Error) {
+    if (
+      err.message.includes("url not allowed") ||
+      err.message.includes("not allowed on the configured scope") ||
+      err.message.includes("Denied by scope")
+    ) {
+      return "This desktop build is not allowed to call the production API. Rebuild with updated Tauri HTTP permissions.";
+    }
     if (err.message === "Invalid signature") {
       return "Encryption session mismatch. Try sending a new message.";
     }

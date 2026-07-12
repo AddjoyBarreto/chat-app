@@ -2,9 +2,11 @@ import { VaultDevice } from "@vaultchat/crypto";
 import {
   bootstrapDevice,
   captureGroupKeyFromContent,
+  clearLocalChatData,
   clearSession,
   createGateway,
   decryptEnvelope,
+  deviceStorageKey,
   fetchConversations,
   forEachInboxPage,
   fetchMe,
@@ -244,8 +246,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [session, device]);
 
   const logout = useCallback(async () => {
+    const userId = session?.userId;
     gatewayRef.current?.close();
     gatewayRef.current = null;
+    if (userId) {
+      await clearLocalChatData(storage, userId);
+      await storage.removeItem(deviceStorageKey(userId));
+    }
     await clearSession(storage);
     inboxRef.current.clearProcessed();
     readStateRef.current = null;
@@ -257,7 +264,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setPreviews({});
     setInitError(null);
     void Notifications.setBadgeCountAsync(0).catch(() => {});
-  }, []);
+  }, [session?.userId]);
 
   useEffect(() => {
     void (async () => {

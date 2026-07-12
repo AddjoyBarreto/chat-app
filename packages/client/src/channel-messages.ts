@@ -94,11 +94,10 @@ export type LoadChannelHistoryOptions = PaginationOptions & {
 };
 
 /**
- * Load a page of channel messages. When the channel has no history yet,
- * falls back once to community-wide group messages so older chats remain visible.
- * Pass `legacy: true` on subsequent pages when the first page used the fallback.
- * On the first page (no cursor), merges any channel messages with legacy group
- * history so existing communities keep their older messages after channel send.
+ * Load a page of channel messages.
+ * When `allowLegacyFallback` is true (intended for `#general` only), merges
+ * community-wide pre-channel `group_messages` so older chats remain visible.
+ * Pass `legacy: true` on subsequent pages when the first page used that fallback.
  */
 export async function loadChannelHistory(
   storage: StorageAdapter,
@@ -136,12 +135,12 @@ export async function loadChannelHistory(
     messages.push(await decryptChannelEnvelope(storage, communityId, envelope, userId));
   }
 
-  // Paginated channel history — no legacy merge.
-  if (opts?.cursor || opts?.allowLegacyFallback === false) {
+  // Paginated history, or non-#general channels — no community-wide legacy merge.
+  if (opts?.cursor || opts?.allowLegacyFallback !== true) {
     return { messages, cursor, hasMore: Boolean(hasMore) };
   }
 
-  // First page: merge legacy group messages so pre-channel history stays visible.
+  // First page of #general: merge legacy group messages so pre-channel history stays visible.
   const legacy = await fetchGroupMessages(token, communityId, { limit });
   const seen = new Set(messages.map((m) => m.id));
   let addedLegacy = 0;

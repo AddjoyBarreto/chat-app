@@ -1,0 +1,686 @@
+/* Marketing landing + download pages only — does not restyle the chat shell. */
+
+.vl-root {
+  --vl-void: #05070b;
+  --vl-ink: #e8f4f2;
+  --vl-muted: #7a9390;
+  --vl-teal: #2ee6c5;
+  --vl-cyan: #5ce1ff;
+  --vl-lime: #b8f255;
+  --vl-panel: rgba(12, 22, 24, 0.72);
+  --vl-line: rgba(46, 230, 197, 0.18);
+  --vl-font-display: var(--font-syne), "Segoe UI", sans-serif;
+  --vl-font-mono: var(--font-plex-mono), ui-monospace, monospace;
+
+  min-height: 100dvh;
+  background: var(--vl-void);
+  color: var(--vl-ink);
+  font-family: var(--vl-font-display);
+  overflow-x: hidden;
+}
+
+.vl-root a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.vl-nav {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.25rem clamp(1.25rem, 4vw, 3rem);
+}
+
+.vl-nav__brand {
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  font-size: 1.15rem;
+}
+
+.vl-nav__brand span {
+  color: var(--vl-teal);
+}
+
+.vl-nav__links {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  font-family: var(--vl-font-mono);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.vl-nav__links a {
+  color: var(--vl-muted);
+  transition: color 0.2s ease;
+}
+
+.vl-nav__links a:hover {
+  color: var(--vl-ink);
+}
+
+.vl-hero {
+  position: relative;
+  isolation: isolate;
+  min-height: calc(100dvh - 4.5rem);
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  padding: clamp(2rem, 6vw, 5rem) clamp(1.25rem, 4vw, 3rem) clamp(3rem, 8vw, 5.5rem);
+}
+
+.vl-hero__atmosphere {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  background:
+    radial-gradient(ellipse 80% 55% at 70% 15%, rgba(46, 230, 197, 0.18), transparent 55%),
+    radial-gradient(ellipse 60% 45% at 10% 80%, rgba(92, 225, 255, 0.12), transparent 50%),
+    radial-gradient(ellipse 40% 30% at 50% 50%, rgba(184, 242, 85, 0.05), transparent 60%),
+    linear-gradient(180deg, #05070b 0%, #071016 55%, #05070b 100%);
+}
+
+.vl-hero__grid {
+  position: absolute;
+  inset: -10%;
+  background-image:
+    linear-gradient(rgba(46, 230, 197, 0.07) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(46, 230, 197, 0.07) 1px, transparent 1px);
+  background-size: 64px 64px;
+  mask-image: radial-gradient(ellipse 70% 60% at 50% 40%, #000 20%, transparent 75%);
+  animation: vl-grid-drift 22s linear infinite;
+  transform: perspective(800px) rotateX(58deg) scale(1.4);
+  transform-origin: center top;
+}
+
+.vl-hero__orb {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(40px);
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+.vl-hero__orb--a {
+  width: min(42vw, 380px);
+  height: min(42vw, 380px);
+  top: 8%;
+  right: 8%;
+  background: radial-gradient(circle, rgba(46, 230, 197, 0.55), transparent 70%);
+  animation: vl-orb-float 11s ease-in-out infinite;
+}
+
+.vl-hero__orb--b {
+  width: min(28vw, 240px);
+  height: min(28vw, 240px);
+  bottom: 18%;
+  left: 6%;
+  background: radial-gradient(circle, rgba(92, 225, 255, 0.45), transparent 70%);
+  animation: vl-orb-float 14s ease-in-out infinite reverse;
+}
+
+.vl-hero__orb--c {
+  width: min(18vw, 160px);
+  height: min(18vw, 160px);
+  top: 42%;
+  left: 42%;
+  background: radial-gradient(circle, rgba(184, 242, 85, 0.35), transparent 70%);
+  animation: vl-orb-float 9s ease-in-out infinite 1s;
+}
+
+.vl-hero__ring {
+  position: absolute;
+  top: 22%;
+  right: 14%;
+  width: min(36vw, 320px);
+  height: min(36vw, 320px);
+  border: 1px solid rgba(46, 230, 197, 0.22);
+  border-radius: 50%;
+  box-shadow:
+    inset 0 0 40px rgba(46, 230, 197, 0.08),
+    0 0 60px rgba(46, 230, 197, 0.08);
+  animation: vl-ring-pulse 5.5s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.vl-hero__ring::after {
+  content: "";
+  position: absolute;
+  inset: 18%;
+  border: 1px dashed rgba(92, 225, 255, 0.2);
+  border-radius: 50%;
+  animation: vl-spin 48s linear infinite;
+}
+
+.vl-hero__particles {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.vl-hero__particles span {
+  position: absolute;
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: var(--vl-cyan);
+  box-shadow: 0 0 10px rgba(92, 225, 255, 0.8);
+  opacity: 0;
+  animation: vl-particle 7s ease-in-out infinite;
+}
+
+.vl-hero__particles span:nth-child(1) {
+  left: 18%;
+  top: 30%;
+  animation-delay: 0s;
+}
+.vl-hero__particles span:nth-child(2) {
+  left: 62%;
+  top: 24%;
+  animation-delay: 1.2s;
+  background: var(--vl-teal);
+}
+.vl-hero__particles span:nth-child(3) {
+  left: 78%;
+  top: 55%;
+  animation-delay: 2.1s;
+}
+.vl-hero__particles span:nth-child(4) {
+  left: 34%;
+  top: 62%;
+  animation-delay: 0.7s;
+  background: var(--vl-lime);
+}
+.vl-hero__particles span:nth-child(5) {
+  left: 48%;
+  top: 18%;
+  animation-delay: 3s;
+}
+.vl-hero__particles span:nth-child(6) {
+  left: 12%;
+  top: 70%;
+  animation-delay: 4.2s;
+  background: var(--vl-teal);
+}
+
+.vl-hero__scan {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 28%;
+  top: 18%;
+  background: linear-gradient(
+    180deg,
+    transparent,
+    rgba(92, 225, 255, 0.06),
+    transparent
+  );
+  animation: vl-scan 7s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.vl-hero__live {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  margin: 0 0 1.1rem;
+  font-family: var(--vl-font-mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--vl-cyan);
+  animation: vl-fade-up 0.9s ease both;
+}
+
+.vl-hero__pulse {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--vl-lime);
+  box-shadow: 0 0 0 0 rgba(184, 242, 85, 0.55);
+  animation: vl-status-pulse 1.8s ease-out infinite;
+}
+
+.vl-hero__brand {
+  font-size: clamp(3.2rem, 12vw, 7.5rem);
+  font-weight: 800;
+  letter-spacing: -0.06em;
+  line-height: 0.92;
+  margin: 0 0 1.25rem;
+  animation: vl-fade-up 0.9s ease 0.05s both;
+}
+
+.vl-hero__brand em {
+  font-style: normal;
+  color: var(--vl-teal);
+  text-shadow: 0 0 40px rgba(46, 230, 197, 0.35);
+  animation: vl-brand-glow 4s ease-in-out infinite;
+}
+
+.vl-hero__headline {
+  max-width: 18ch;
+  font-size: clamp(1.35rem, 3.2vw, 2rem);
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  line-height: 1.25;
+  margin: 0 0 0.85rem;
+  animation: vl-fade-up 0.9s ease 0.12s both;
+}
+
+.vl-hero__sub {
+  max-width: 36ch;
+  margin: 0 0 2rem;
+  color: var(--vl-muted);
+  font-size: 1.05rem;
+  line-height: 1.55;
+  animation: vl-fade-up 0.9s ease 0.18s both;
+}
+
+.vl-hero__cta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.85rem;
+  animation: vl-fade-up 0.9s ease 0.26s both;
+}
+
+.vl-hero__madeby {
+  margin: 1.35rem 0 0;
+  font-family: var(--vl-font-mono);
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+  color: var(--vl-muted);
+  animation: vl-fade-up 0.9s ease 0.34s both;
+}
+
+.vl-hero__madeby a {
+  color: var(--vl-teal);
+  border-bottom: 1px solid rgba(46, 230, 197, 0.35);
+  transition: color 0.2s ease, border-color 0.2s ease;
+}
+
+.vl-hero__madeby a:hover {
+  color: var(--vl-cyan);
+  border-color: rgba(92, 225, 255, 0.6);
+}
+
+.vl-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.95rem 1.35rem;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  font-family: var(--vl-font-mono);
+  font-size: 0.78rem;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  transition: transform 0.2s ease, background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.vl-btn:hover {
+  transform: translateY(-1px);
+}
+
+.vl-btn--primary {
+  background: linear-gradient(120deg, var(--vl-teal), var(--vl-cyan));
+  color: #041014;
+  box-shadow: 0 0 0 1px rgba(46, 230, 197, 0.3), 0 12px 40px rgba(46, 230, 197, 0.2);
+  animation: vl-shimmer 3.5s ease-in-out infinite;
+  background-size: 160% 100%;
+}
+
+.vl-btn--ghost {
+  background: transparent;
+  border-color: var(--vl-line);
+  color: var(--vl-ink);
+}
+
+.vl-btn--ghost:hover {
+  border-color: rgba(46, 230, 197, 0.45);
+  background: rgba(46, 230, 197, 0.06);
+}
+
+.vl-btn--disabled,
+.vl-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
+  pointer-events: none;
+  box-shadow: none;
+  animation: none;
+}
+
+.vl-section {
+  position: relative;
+  padding: clamp(3.5rem, 8vw, 6rem) clamp(1.25rem, 4vw, 3rem);
+  border-top: 1px solid var(--vl-line);
+}
+
+.vl-section--alive::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: clamp(1.25rem, 4vw, 3rem);
+  width: min(12rem, 40%);
+  height: 1px;
+  background: linear-gradient(90deg, var(--vl-teal), transparent);
+  animation: vl-line-sweep 4s ease-in-out infinite;
+}
+
+.vl-section--maker {
+  background:
+    radial-gradient(ellipse 50% 80% at 100% 50%, rgba(46, 230, 197, 0.07), transparent 60%);
+}
+
+.vl-inline-link {
+  color: var(--vl-teal);
+  border-bottom: 1px solid rgba(46, 230, 197, 0.35);
+}
+
+.vl-inline-link:hover {
+  color: var(--vl-cyan);
+}
+
+.vl-btn--maker {
+  margin-top: 1.5rem;
+}
+
+.vl-section__eyebrow {
+  font-family: var(--vl-font-mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--vl-lime);
+  margin: 0 0 0.75rem;
+}
+
+.vl-section__title {
+  font-size: clamp(1.6rem, 3.5vw, 2.4rem);
+  font-weight: 700;
+  letter-spacing: -0.04em;
+  margin: 0 0 0.75rem;
+  max-width: 18ch;
+}
+
+.vl-section__body {
+  margin: 0;
+  max-width: 42ch;
+  color: var(--vl-muted);
+  line-height: 1.6;
+  font-size: 1.02rem;
+}
+
+.vl-download-strip {
+  display: grid;
+  gap: 1rem;
+  margin-top: 2rem;
+  grid-template-columns: 1fr;
+}
+
+@media (min-width: 720px) {
+  .vl-download-strip {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.vl-platform {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  padding: 1.35rem 1.4rem;
+  border: 1px solid var(--vl-line);
+  border-radius: 18px;
+  background: var(--vl-panel);
+  backdrop-filter: blur(10px);
+  transition: border-color 0.25s ease, transform 0.25s ease, box-shadow 0.25s ease;
+}
+
+.vl-platform:hover {
+  border-color: rgba(46, 230, 197, 0.4);
+  transform: translateY(-3px);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.35), 0 0 24px rgba(46, 230, 197, 0.08);
+}
+
+.vl-platform__meta {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.vl-platform__name {
+  font-size: 1.2rem;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  margin: 0;
+}
+
+.vl-platform__file {
+  font-family: var(--vl-font-mono);
+  font-size: 0.72rem;
+  color: var(--vl-muted);
+}
+
+.vl-note {
+  margin-top: 2rem;
+  padding: 1.15rem 1.25rem;
+  border-left: 3px solid var(--vl-lime);
+  background: rgba(184, 242, 85, 0.06);
+  border-radius: 0 12px 12px 0;
+}
+
+.vl-note__title {
+  font-family: var(--vl-font-mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--vl-lime);
+  margin: 0 0 0.45rem;
+}
+
+.vl-note__body {
+  margin: 0;
+  color: var(--vl-muted);
+  line-height: 1.55;
+  font-size: 0.95rem;
+}
+
+.vl-footer {
+  padding: 1.5rem clamp(1.25rem, 4vw, 3rem) 2.5rem;
+  border-top: 1px solid var(--vl-line);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.5rem;
+  justify-content: space-between;
+  font-family: var(--vl-font-mono);
+  font-size: 0.72rem;
+  color: var(--vl-muted);
+  letter-spacing: 0.04em;
+}
+
+.vl-footer__credit a {
+  color: var(--vl-teal);
+  border-bottom: 1px solid rgba(46, 230, 197, 0.3);
+}
+
+.vl-footer__credit a:hover {
+  color: var(--vl-cyan);
+}
+
+.vl-page-head {
+  padding: clamp(2rem, 5vw, 3.5rem) clamp(1.25rem, 4vw, 3rem) 0;
+}
+
+.vl-page-head h1 {
+  font-size: clamp(2.4rem, 7vw, 4rem);
+  letter-spacing: -0.05em;
+  margin: 0 0 0.75rem;
+}
+
+.vl-page-head p {
+  margin: 0;
+  max-width: 40ch;
+  color: var(--vl-muted);
+  line-height: 1.55;
+}
+
+.vl-version {
+  font-family: var(--vl-font-mono);
+  font-size: 0.72rem;
+  color: var(--vl-cyan);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-bottom: 0.75rem;
+}
+
+@keyframes vl-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes vl-grid-drift {
+  from {
+    background-position: 0 0, 0 0;
+  }
+  to {
+    background-position: 0 64px, 64px 0;
+  }
+}
+
+@keyframes vl-scan {
+  0%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.35;
+  }
+  50% {
+    transform: translateY(40%);
+    opacity: 0.7;
+  }
+}
+
+@keyframes vl-shimmer {
+  0%,
+  100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
+@keyframes vl-orb-float {
+  0%,
+  100% {
+    transform: translate(0, 0) scale(1);
+  }
+  50% {
+    transform: translate(-24px, 18px) scale(1.08);
+  }
+}
+
+@keyframes vl-ring-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.55;
+  }
+  50% {
+    transform: scale(1.06);
+    opacity: 1;
+  }
+}
+
+@keyframes vl-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes vl-particle {
+  0%,
+  100% {
+    opacity: 0;
+    transform: translateY(12px) scale(0.6);
+  }
+  20%,
+  70% {
+    opacity: 0.9;
+  }
+  50% {
+    transform: translateY(-28px) scale(1);
+  }
+}
+
+@keyframes vl-status-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(184, 242, 85, 0.55);
+  }
+  70% {
+    box-shadow: 0 0 0 12px rgba(184, 242, 85, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(184, 242, 85, 0);
+  }
+}
+
+@keyframes vl-brand-glow {
+  0%,
+  100% {
+    text-shadow: 0 0 28px rgba(46, 230, 197, 0.28);
+  }
+  50% {
+    text-shadow: 0 0 52px rgba(46, 230, 197, 0.55), 0 0 80px rgba(92, 225, 255, 0.2);
+  }
+}
+
+@keyframes vl-line-sweep {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scaleX(0.55);
+    transform-origin: left;
+  }
+  50% {
+    opacity: 1;
+    transform: scaleX(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vl-hero__grid,
+  .vl-hero__scan,
+  .vl-hero__orb,
+  .vl-hero__ring,
+  .vl-hero__ring::after,
+  .vl-hero__particles span,
+  .vl-hero__pulse,
+  .vl-hero__brand em,
+  .vl-btn--primary,
+  .vl-hero__brand,
+  .vl-hero__headline,
+  .vl-hero__sub,
+  .vl-hero__cta,
+  .vl-hero__live,
+  .vl-hero__madeby,
+  .vl-section--alive::before {
+    animation: none;
+  }
+
+  .vl-platform:hover {
+    transform: none;
+  }
+}

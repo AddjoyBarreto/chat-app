@@ -99,14 +99,17 @@ export default function GroupChatScreen() {
 
   const loadMessages = useCallback(async () => {
     if (!session || !groupId || !activeChannelRef.current) return;
-    const channelId = activeChannelRef.current.id;
+    const channel = activeChannelRef.current;
+    const channelId = channel.id;
     const page = await loadChannelHistory(
       storage,
       session.token,
       groupId,
       channelId,
-      session.userId
+      session.userId,
+      { allowLegacyFallback: channel.name === "general" }
     );
+    if (activeChannelRef.current?.id !== channelId) return;
     const names = new Map(members.map((m) => [m.userId, m.username]));
     const myName = members.find((m) => m.userId === session.userId)?.username ?? session.username;
     const parsed: GroupMessageItem[] = page.messages.map((msg) => ({
@@ -219,6 +222,11 @@ export default function GroupChatScreen() {
 
   useEffect(() => {
     if (!activeChannel || activeChannel.type !== "text" || !hasKey) return;
+    setMessages([]);
+    setMessageCursor(undefined);
+    setHasMoreMessages(false);
+    setLegacyHistory(false);
+    messageIds.current.clear();
     void loadMessages().catch((e) => Alert.alert("Error", friendlyError(e)));
   }, [activeChannel, hasKey, loadMessages, groupKeysVersion]);
 

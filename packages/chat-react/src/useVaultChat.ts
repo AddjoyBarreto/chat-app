@@ -2,6 +2,7 @@ import type { VaultDevice } from "@vaultchat/crypto";
 import type { ConversationPreview } from "@vaultchat/protocol";
 import {
   cacheDecryptedMessage,
+  clearLocalChatData,
   createLocalStorageAdapter,
   decryptEnvelope,
   dedupeMessages,
@@ -20,6 +21,7 @@ import {
   loginOnServer,
   lookupUser,
   mergeAndUploadAccountBackup,
+  mergeConversationTimeline,
   MessageInbox,
   persistDevice,
   previewText,
@@ -29,6 +31,7 @@ import {
   clearSession,
   sendEncryptedMessage,
   sortMessages,
+  syncConversationWithCache,
   provisionDeviceForLogin,
   DeviceIdentityMismatchError,
   deviceStorageKey,
@@ -142,10 +145,14 @@ export function useVaultChat(options: UseVaultChatOptions = {}) {
     messageIdsRef.current.add(msg.id);
     setMessages((prev) => sortMessages(dedupeMessages([...prev, msg])));
     const peerId = peerRef.current?.id;
+    const userId = sessionRef.current?.userId;
     if (peerId) {
       setPreviews((p) => ({ ...p, [peerId]: previewText(msg) }));
+      if (userId) {
+        void mergeConversationTimeline(storage, userId, peerId, [msg]);
+      }
     }
-  }, []);
+  }, [storage]);
 
   const handleIncoming = useCallback(
     async (
@@ -406,7 +413,10 @@ export function useVaultChat(options: UseVaultChatOptions = {}) {
   async function logout() {
     const userId = session?.userId ?? sessionRef.current?.userId;
     if (session) await readStateRef.current?.clear();
-    if (userId) await storage.removeItem(deviceStorageKey(userId));
+    if (userId) {
+      await clearLocalChatData(storage, userId);
+      await storage.removeItem(deviceStorageKey(userId));
+    }
     await clearSession(storage);
     setSession(null);
     deviceRef.current = null;
@@ -433,6 +443,7 @@ export function useVaultChat(options: UseVaultChatOptions = {}) {
     if (!sess || !readState) return;
 
     const generation = ++openGenerationRef.current;
+    const isCurrent = () => generation === openGenerationRef.current;
 
     const conv = conversations.find((c) => c.peerId === peerId);
     if (conv) readState.markPeerRead(peerId, conv.lastMessageAt);
@@ -450,45 +461,51 @@ export function useVaultChat(options: UseVaultChatOptions = {}) {
     setLoading(true);
 
     try {
-      const { messages: envelopes, cursor, hasMore } = await fetchConversation(
-        sess.token,
-        peerId,
-        { limit: 50 }
-      );
-      if (generation !== openGenerationRef.current) return;
-
       const device = deviceRef.current!;
-      const decrypted: DisplayMessage[] = [];
-
-      for (const envelope of envelopes) {
-        inboxRef.current.markProcessed(envelope.id);
-        const display = await decryptEnvelope(
+      const { messages: synced, cursor, hasMore } =
+        await syncConversationWithCache({
+          storage,
           device,
-          envelope,
-          sess.userId,
-          historyDecryptOptions(storage, sess.userId, envelope, sess.userId, sess.deviceId)
-        );
-        decrypted.push(display);
-        messageIdsRef.current.add(display.id);
+          token: sess.token,
+          userId: sess.userId,
+          deviceId: sess.deviceId,
+          peerId,
+          limit: 50,
+          isCurrent,
+          onHydrated: (cached) => {
+            if (!isCurrent()) return;
+            for (const m of cached) {
+              inboxRef.current.markProcessed(m.id);
+              messageIdsRef.current.add(m.id);
+            }
+            setMessages(cached);
+            // Instant paint from device cache; keep a light sync indicator.
+            setLoading(false);
+          },
+        });
+
+      if (!isCurrent()) return;
+
+      for (const m of synced) {
+        inboxRef.current.markProcessed(m.id);
+        messageIdsRef.current.add(m.id);
       }
 
-      if (generation !== openGenerationRef.current) return;
-
-      setMessages(sortMessages(decrypted));
+      setMessages(synced);
       setMessageCursor(cursor);
       setHasMoreMessages(Boolean(hasMore));
 
-      const last = decrypted[decrypted.length - 1];
+      const last = synced[synced.length - 1];
       if (last) {
         setPreviews((p) => ({ ...p, [peerId]: previewText(last) }));
         readState.markPeerRead(peerId, last.time);
       }
     } catch (e) {
-      if (generation !== openGenerationRef.current) return;
+      if (!isCurrent()) return;
       toast(String(e), "error");
       setPeer(null);
     } finally {
-      if (generation === openGenerationRef.current) setLoading(false);
+      if (isCurrent()) setLoading(false);
     }
   }
 
@@ -515,7 +532,11 @@ export function useVaultChat(options: UseVaultChatOptions = {}) {
         older.push(display);
         messageIdsRef.current.add(display.id);
       }
-      setMessages((prev) => sortMessages(dedupeMessages([...older, ...prev])));
+      setMessages((prev) => {
+        const merged = sortMessages(dedupeMessages([...older, ...prev]));
+        void mergeConversationTimeline(storage, sess.userId, peer.id, older);
+        return merged;
+      });
       setMessageCursor(cursor);
       setHasMoreMessages(Boolean(hasMore));
     } catch (e) {
@@ -616,6 +637,7 @@ export function useVaultChat(options: UseVaultChatOptions = {}) {
       );
       messageIdsRef.current.add(result.messageId);
       await cacheDecryptedMessage(storage, sess.userId, sentMessage);
+      await mergeConversationTimeline(storage, sess.userId, peer.id, [sentMessage]);
       setPreviews((p) => ({ ...p, [peer.id]: text }));
       void refreshConversations(sess.token);
     } catch (e) {

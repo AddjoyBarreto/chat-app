@@ -1,0 +1,15 @@
+{
+  "version": "0.0.1",
+  "updatedAt": "2026-07-12",
+  "mac": {
+    "filename": "VaultChat.dmg",
+    "label": "macOS",
+    "available": true
+  },
+  "windows": {
+    "filename": "VaultChat-Setup.exe",
+    "label": "Windows",
+    "available": true
+  },
+  "note": "Desktop builds are safe to download. They are not code-signed yet, so macOS Gatekeeper or Windows SmartScreen may show a warning — that is expected."
+}

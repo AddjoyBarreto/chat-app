@@ -156,7 +156,7 @@ export function GroupServerView({
   }, [token, groupId]);
 
   const loadMessages = useCallback(
-    async (channelId: string) => {
+    async (channelId: string, allowLegacyFallback = false) => {
       let device: Awaited<ReturnType<typeof loadUserDevice>> | undefined;
       try {
         device = await loadUserDevice(token, userId, username, deviceId);
@@ -165,7 +165,10 @@ export function GroupServerView({
       }
       const page = await loadChannelHistory(storage, token, groupId, channelId, userId, {
         device,
+        allowLegacyFallback,
       });
+      // Ignore stale responses after the user switched channels.
+      if (activeChannelRef.current?.id !== channelId) return;
       const memberMap = new Map(members.map((m) => [m.userId, m.username]));
       const parsed: GroupMessage[] = page.messages.map((msg) => ({
         id: msg.id,
@@ -290,7 +293,14 @@ export function GroupServerView({
 
   useEffect(() => {
     if (!activeChannel || activeChannel.type !== "text") return;
-    void loadMessages(activeChannel.id).catch((e) => setError(friendlyError(e)));
+    setMessages([]);
+    setMessageCursor(undefined);
+    setHasMoreMessages(false);
+    setLegacyHistory(false);
+    messageIdsRef.current = new Set();
+    void loadMessages(activeChannel.id, activeChannel.name === "general").catch((e) =>
+      setError(friendlyError(e))
+    );
   }, [activeChannel, loadMessages, groupKeysVersion]);
 
   useEffect(() => {

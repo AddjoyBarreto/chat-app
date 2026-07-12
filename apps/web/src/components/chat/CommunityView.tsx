@@ -154,8 +154,11 @@ export function CommunityView({
   }, [token, communityId, userId]);
 
   const loadMessages = useCallback(
-    async (channelId: string) => {
-      const page = await loadCommunityChannelMessages(token, communityId, channelId, userId);
+    async (channelId: string, allowLegacyFallback = false) => {
+      const page = await loadCommunityChannelMessages(token, communityId, channelId, userId, {
+        allowLegacyFallback,
+      });
+      if (activeChannelRef.current?.id !== channelId) return;
       const memberMap = new Map(members.map((m) => [m.userId, m.username]));
       const next: CommunityMessage[] = page.messages.map((m) => ({
         id: m.id,
@@ -322,7 +325,14 @@ export function CommunityView({
 
   useEffect(() => {
     if (!activeChannel || activeChannel.type !== "text" || !hasGroupKey) return;
-    void loadMessages(activeChannel.id).catch((e) => setError(friendlyError(e)));
+    setMessages([]);
+    setMessageCursor(undefined);
+    setHasMoreMessages(false);
+    setLegacyHistory(false);
+    messageIdsRef.current = new Set();
+    void loadMessages(activeChannel.id, activeChannel.name === "general").catch((e) =>
+      setError(friendlyError(e))
+    );
   }, [activeChannel, hasGroupKey, loadMessages]);
 
   useEffect(() => {

@@ -31,12 +31,14 @@ function getPgClient(connectionString: string): PostgresClient {
   const existing = globalForDb.vaultchatPgClients.get(connectionString);
   if (existing) return existing;
 
+  const needsSsl = /supabase\.co|neon\.tech/i.test(connectionString);
   const client = postgres(connectionString, {
     // Keep pools small — Next.js dev HMR can spawn multiple module instances.
     max: 3,
     idle_timeout: 20,
     connect_timeout: 10,
     prepare: !usesTransactionPooler(connectionString),
+    ...(needsSsl ? { ssl: "require" as const } : {}),
   });
 
   globalForDb.vaultchatPgClients.set(connectionString, client);

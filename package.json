@@ -7,7 +7,8 @@
     "lint": "turbo lint",
     "test": "turbo test",
     "db:generate": "pnpm --filter @vaultchat/db generate",
-    "db:migrate": "pnpm --filter @vaultchat/db migrate",
+    "db:migrate": "node scripts/db-migrate.mjs",
+    "db:migrate:prod": "node scripts/db-migrate.mjs --production",
     "db:reset": "node scripts/db-reset.mjs",
     "db:studio": "pnpm --filter @vaultchat/db studio",
     "crypto:test": "pnpm --filter @vaultchat/crypto test",
@@ -42,6 +43,13 @@
       "@types/react-dom": "~18.3.7",
       "nanoid": "3.3.7"
     },
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "sharp",
+      "unrs-resolver",
+      "@swc/core",
+      "msgpackr-extract"
+    ],
     "packageExtensions": {
       "postcss": {
         "dependencies": {

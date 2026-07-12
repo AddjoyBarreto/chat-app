@@ -1,6 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "nextjs",
-  "installCommand": "cd ../.. && corepack enable && pnpm install",
-  "buildCommand": "cd ../.. && pnpm --filter @vaultchat/{protocol,crypto,db,api-core,client,chat-react} build && pnpm --filter @vaultchat/web build"
+  "installCommand": "cd ../.. && corepack enable && pnpm install --frozen-lockfile",
+  "buildCommand": "cd ../.. && pnpm --filter @vaultchat/protocol --filter @vaultchat/crypto --filter @vaultchat/db --filter @vaultchat/api-core --filter @vaultchat/client --filter @vaultchat/chat-react build && pnpm --filter @vaultchat/web build"
 }

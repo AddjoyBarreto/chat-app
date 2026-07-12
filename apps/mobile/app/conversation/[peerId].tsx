@@ -43,15 +43,16 @@ import { callsSupported } from "@/lib/webrtc";
 import { theme } from "@/theme";
 
 export default function ConversationScreen() {
-  const { peerId, peerUsername } = useLocalSearchParams<{
+  const { peerId, peerUsername, draft: draftParam } = useLocalSearchParams<{
     peerId: string;
     peerUsername: string;
+    draft?: string;
   }>();
   const { session, device, onMessageHandlers, refreshConversations, conversations, setActivePeer, markConversationRead } = useApp();
   const { canCall, startOutgoing } = useCall();
   const navigation = useNavigation();
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
-  const [draft, setDraft] = useState("");
+  const [draft, setDraft] = useState(typeof draftParam === "string" ? draftParam : "");
   const [sending, setSending] = useState(false);
   const [loading, setLoading] = useState(false);
   const [messageCursor, setMessageCursor] = useState<string | undefined>();
@@ -129,14 +130,18 @@ export default function ConversationScreen() {
 
   useEffect(() => {
     if (!session || !device || !peerId) return;
+    let cancelled = false;
     void (async () => {
       setLoading(true);
+      setMessages([]);
+      messageIds.current.clear();
       try {
         const { messages: envelopes, cursor, hasMore: more } = await fetchConversation(
           session.token,
           peerId,
           { limit: 50 }
         );
+        if (cancelled) return;
         const decrypted: DisplayMessage[] = [];
         for (const envelope of envelopes) {
           const display = await decryptEnvelope(
@@ -148,6 +153,7 @@ export default function ConversationScreen() {
           messageIds.current.add(display.id);
           decrypted.push(display);
         }
+        if (cancelled) return;
         await persistDevice(storage, device, session.userId);
         setMessages(sortMessages(decrypted));
         setMessageCursor(cursor);
@@ -155,11 +161,14 @@ export default function ConversationScreen() {
         const last = decrypted[decrypted.length - 1];
         if (last) markConversationRead(peerId, last.time);
       } catch (e) {
-        Alert.alert("Error", friendlyError(e));
+        if (!cancelled) Alert.alert("Error", friendlyError(e));
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     })();
+    return () => {
+      cancelled = true;
+    };
   }, [session, device, peerId]);
 
   async function loadOlder() {

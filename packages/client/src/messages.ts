@@ -115,6 +115,7 @@ export async function decryptEnvelope(
   });
 
   // Own messages: decrypt sender copy for this device, or fall back to cache.
+  // Self-DMs (multi-device key sync) use the recipient ciphertext field instead.
   if (envelope.senderId === myUserId) {
     const myDeviceId = options?.myDeviceId;
     const copies = envelope.senderCiphertexts;
@@ -155,6 +156,43 @@ export async function decryptEnvelope(
         }
       }
     }
+
+    if (tryDecrypt && envelope.recipientId === myUserId) {
+      const ciphertextCandidates: string[] = [];
+      const preferred = pickRecipientCiphertext(envelope, options?.myDeviceId);
+      ciphertextCandidates.push(preferred);
+      if (envelope.recipientCiphertexts) {
+        for (const raw of Object.values(envelope.recipientCiphertexts)) {
+          if (raw !== preferred) ciphertextCandidates.push(raw);
+        }
+      }
+      for (const raw of ciphertextCandidates) {
+        try {
+          const payload = parseEnvelopeCiphertext(raw);
+          const plaintext = await device.decrypt(
+            envelope.senderId,
+            envelope.senderDeviceId,
+            payload
+          );
+          const content = parseMessageContent(plaintext);
+          const display: DisplayMessage = {
+            id: envelope.id,
+            from: "me",
+            content,
+            time: envelope.createdAt,
+            date: formatMessageDate(envelope.createdAt),
+            status: "sent",
+          };
+          if (options) {
+            await cacheDecryptedMessage(options.storage, options.userId, display);
+          }
+          return display;
+        } catch {
+          // try next
+        }
+      }
+    }
+
     return undecryptable();
   }
 

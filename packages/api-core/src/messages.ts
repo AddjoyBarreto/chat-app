@@ -96,17 +96,17 @@ export async function sendMessage(
   assertValidCiphertext(body.ciphertext);
 
   if (senderId === body.recipientId) {
-    throw new ApiCoreError("Cannot message yourself", 400, "INVALID_RECIPIENT");
+    // Allowed for multi-device sync (e.g. community encryption key shares).
+  } else {
+    const [recipient] = await ctx.db
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.id, body.recipientId))
+      .limit(1);
+    if (!recipient) throw new ApiCoreError("Recipient not found", 404, "NOT_FOUND");
+
+    await assertCanDm(ctx, senderId, body.recipientId);
   }
-
-  const [recipient] = await ctx.db
-    .select({ id: users.id })
-    .from(users)
-    .where(eq(users.id, body.recipientId))
-    .limit(1);
-  if (!recipient) throw new ApiCoreError("Recipient not found", 404, "NOT_FOUND");
-
-  await assertCanDm(ctx, senderId, body.recipientId);
 
   const [row] = await ctx.db
     .insert(messages)

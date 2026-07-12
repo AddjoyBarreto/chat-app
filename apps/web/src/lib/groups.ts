@@ -2,17 +2,24 @@ import { GroupCipher, type VaultDevice } from "@vaultchat/crypto";
 import {
   createGroup,
   createLocalStorageAdapter,
+  decryptChannelEnvelope,
   decryptGroupEnvelope,
   distributeGroupKey,
   fetchGroupMembers,
   fetchGroupMessages,
+  loadChannelHistory,
   loadGroupCipher,
   reshareGroupKey,
   saveGroupKey,
+  sendChannelContentMessage,
   sendGroupContentMessage,
   shareGroupKeyWithMember,
 } from "@vaultchat/client";
-import type { GroupMessageEnvelope, MessageContent } from "@vaultchat/protocol";
+import type {
+  ChannelMessageEnvelope,
+  GroupMessageEnvelope,
+  MessageContent,
+} from "@vaultchat/protocol";
 import type { GroupDisplayMessage } from "@/components/chat/GroupConversationView";
 
 const storage = createLocalStorageAdapter();
@@ -61,12 +68,37 @@ export async function loadGroupMessages(
   return parsed;
 }
 
+export async function loadCommunityChannelMessages(
+  token: string,
+  communityId: string,
+  channelId: string,
+  userId: string,
+  opts?: { cursor?: string; limit?: number; legacy?: boolean }
+): Promise<{ messages: GroupDisplayMessage[]; cursor?: string; hasMore: boolean; legacy?: boolean }> {
+  const page = await loadChannelHistory(storage, token, communityId, channelId, userId, opts);
+  return {
+    messages: page.messages.map(toDisplayMessage),
+    cursor: page.cursor,
+    hasMore: page.hasMore,
+    legacy: page.legacy,
+  };
+}
+
 export async function decryptIncomingGroupMessage(
   groupId: string,
   envelope: GroupMessageEnvelope,
   userId: string
 ): Promise<GroupDisplayMessage> {
   const msg = await decryptGroupEnvelope(storage, groupId, envelope, userId);
+  return toDisplayMessage(msg);
+}
+
+export async function decryptIncomingChannelMessage(
+  communityId: string,
+  envelope: ChannelMessageEnvelope,
+  userId: string
+): Promise<GroupDisplayMessage> {
+  const msg = await decryptChannelEnvelope(storage, communityId, envelope, userId);
   return toDisplayMessage(msg);
 }
 
@@ -77,6 +109,24 @@ export async function sendGroupTextMessage(
   text: string
 ) {
   return sendGroupContentMessage(storage, userId, token, groupId, { type: "text", text }, "text");
+}
+
+export async function sendChannelTextMessage(
+  token: string,
+  userId: string,
+  communityId: string,
+  channelId: string,
+  text: string
+) {
+  return sendChannelContentMessage(
+    storage,
+    userId,
+    token,
+    communityId,
+    channelId,
+    { type: "text", text },
+    "text"
+  );
 }
 
 export async function sendGroupMediaMessage(
@@ -139,6 +189,7 @@ function toDisplayMessage(msg: Awaited<ReturnType<typeof decryptGroupEnvelope>>)
     time: msg.time,
     date: formatGroupDate(msg.time),
     failed: msg.failed,
+    senderId: msg.senderId,
   };
 }
 

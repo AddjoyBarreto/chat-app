@@ -6,7 +6,7 @@ import {
   createGateway,
   decryptEnvelope,
   fetchConversations,
-  fetchInbox,
+  forEachInboxPage,
   fetchMe,
   friendlyError,
   loadSession,
@@ -132,7 +132,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const handleIncomingEnvelope = useCallback(
-    async (envelope: MessageEnvelope) => {
+    async (envelope: MessageEnvelope, opts?: { inboxCatchUp?: boolean }) => {
       const dev = deviceRef.current;
       const sess = sessionRef.current;
       if (!dev || !sess) return;
@@ -153,7 +153,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
           await persistDevice(storage, dev, sess.userId);
         }
 
-        if (await captureGroupKeyFromContent(storage, sess.userId, display.content)) {
+        if (
+          await captureGroupKeyFromContent(storage, sess.userId, display.content, {
+            replaceExisting: !opts?.inboxCatchUp,
+          })
+        ) {
           inboxRef.current.markProcessed(envelope.id);
           setGroupKeysVersion((v) => v + 1);
           return;
@@ -208,16 +212,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     const readState = await ensureReadState(sess);
     try {
-      const { messages } = await fetchInbox(sess.token);
-      for (const envelope of messages) {
-        if (inboxRef.current.hasProcessed(envelope.id)) continue;
-        const peerId = inboxRef.current.peerIdForEnvelope(envelope, sess.userId);
-        if (readState.isPeerMessageRead(peerId, envelope.createdAt)) {
-          inboxRef.current.markProcessed(envelope.id);
-          continue;
+      await forEachInboxPage(sess.token, async (messages) => {
+        for (const envelope of messages) {
+          if (inboxRef.current.hasProcessed(envelope.id)) continue;
+          const peerId = inboxRef.current.peerIdForEnvelope(envelope, sess.userId);
+          if (readState.isPeerMessageRead(peerId, envelope.createdAt)) {
+            inboxRef.current.markProcessed(envelope.id);
+            continue;
+          }
+          await handleIncomingRef.current(envelope, { inboxCatchUp: true });
         }
-        await handleIncomingRef.current(envelope);
-      }
+      });
     } catch {
       // non-fatal catch-up
     }

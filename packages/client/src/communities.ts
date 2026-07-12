@@ -98,3 +98,18 @@ export async function promoteCommunityMember(
   );
   await parseApiResponse(res);
 }
+
+export async function demoteCommunityMember(
+  token: string,
+  communityId: string,
+  userId: string
+): Promise<void> {
+  const res = await clientFetch(
+    apiUrl(`/api/v1/communities/${communityId}/members/${userId}/demote`),
+    {
+      method: "POST",
+      headers: authHeaders(token),
+    }
+  );
+  await parseApiResponse(res);
+}

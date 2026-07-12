@@ -15,6 +15,7 @@ export interface GroupDisplayMessage {
   time: string;
   date: string;
   failed?: boolean;
+  senderId?: string;
 }
 
 interface GroupConversationViewProps {

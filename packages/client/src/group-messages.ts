@@ -11,6 +11,7 @@ export interface DecryptedGroupMessage {
   failed?: boolean;
   content: MessageContent;
   text: string;
+  senderId?: string;
 }
 
 export async function decryptGroupEnvelope(
@@ -27,6 +28,7 @@ export async function decryptGroupEnvelope(
       content: { type: "text", text: "🔒 Missing group key" },
       from: envelope.senderId === userId ? "me" : "them",
       time: envelope.createdAt,
+      senderId: envelope.senderId,
       failed: true,
     };
   }
@@ -40,6 +42,7 @@ export async function decryptGroupEnvelope(
       content,
       from: envelope.senderId === userId ? "me" : "them",
       time: envelope.createdAt,
+      senderId: envelope.senderId,
     };
   } catch {
     return {
@@ -48,6 +51,7 @@ export async function decryptGroupEnvelope(
       content: { type: "text", text: "🔒 Unable to decrypt" },
       from: envelope.senderId === userId ? "me" : "them",
       time: envelope.createdAt,
+      senderId: envelope.senderId,
       failed: true,
     };
   }

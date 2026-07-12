@@ -1,16 +1,19 @@
 import {
+  decryptChannelEnvelope,
   decryptGroupEnvelope,
   fetchChannelCategories,
   fetchCommunityChannels,
   fetchGroupMembers,
-  fetchGroupMessages,
+  fetchGroups,
   fetchVoicePresence,
   friendlyError,
   joinVoiceChannel,
   leaveVoiceChannel,
+  loadChannelHistory,
   loadGroupCipher,
   reshareGroupKey,
-  sendGroupContentMessage,
+  sendChannelContentMessage,
+  shareGroupKeyWithMember,
 } from "@vaultchat/client";
 import type {
   ChannelCategoryInfo,
@@ -62,10 +65,17 @@ export default function GroupChatScreen() {
   const [members, setMembers] = useState<Awaited<ReturnType<typeof fetchGroupMembers>>>([]);
   const [messages, setMessages] = useState<GroupMessageItem[]>([]);
   const messageIds = useRef(new Set<string>());
+  const activeChannelRef = useRef<ChannelInfo | null>(null);
+  activeChannelRef.current = activeChannel;
+  const [messageCursor, setMessageCursor] = useState<string | undefined>();
+  const [hasMoreMessages, setHasMoreMessages] = useState(false);
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const [legacyHistory, setLegacyHistory] = useState(false);
   const [draft, setDraft] = useState("");
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [createdBy, setCreatedBy] = useState<string | null>(null);
   const [hasKey, setHasKey] = useState(false);
   const [resharing, setResharing] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -88,31 +98,80 @@ export default function GroupChatScreen() {
   }, [session, groupId]);
 
   const loadMessages = useCallback(async () => {
-    if (!session || !groupId) return;
-    const { messages: envelopes } = await fetchGroupMessages(session.token, groupId);
+    if (!session || !groupId || !activeChannelRef.current) return;
+    const channelId = activeChannelRef.current.id;
+    const page = await loadChannelHistory(
+      storage,
+      session.token,
+      groupId,
+      channelId,
+      session.userId
+    );
     const names = new Map(members.map((m) => [m.userId, m.username]));
     const myName = members.find((m) => m.userId === session.userId)?.username ?? session.username;
-    const parsed: GroupMessageItem[] = [];
-    for (const envelope of envelopes) {
-      const msg = await decryptGroupEnvelope(storage, groupId, envelope, session.userId);
-      const author =
+    const parsed: GroupMessageItem[] = page.messages.map((msg) => ({
+      id: msg.id,
+      username:
         msg.from === "me"
           ? myName
-          : (names.get(envelope.senderId) ?? envelope.senderId.slice(0, 8));
-      parsed.push({
-        id: msg.id,
-        username: author,
-        text: msg.text,
-        content: msg.content,
-        from: msg.from,
-        time: msg.time,
-        failed: msg.failed,
-      });
-    }
+          : (msg.senderId && names.get(msg.senderId)) || msg.senderId?.slice(0, 8) || "Member",
+      text: msg.text,
+      content: msg.content,
+      from: msg.from,
+      time: msg.time,
+      failed: msg.failed,
+    }));
     messageIds.current.clear();
     for (const m of parsed) messageIds.current.add(m.id);
     setMessages(parsed);
+    setMessageCursor(page.cursor);
+    setHasMoreMessages(page.hasMore);
+    setLegacyHistory(Boolean(page.legacy));
   }, [session, groupId, members]);
+
+  const loadOlderMessages = useCallback(async () => {
+    if (!session || !groupId || !activeChannelRef.current) return;
+    if (!messageCursor || loadingOlder || !hasMoreMessages) return;
+    setLoadingOlder(true);
+    try {
+      const page = await loadChannelHistory(
+        storage,
+        session.token,
+        groupId,
+        activeChannelRef.current.id,
+        session.userId,
+        { cursor: messageCursor, legacy: legacyHistory }
+      );
+      const names = new Map(members.map((m) => [m.userId, m.username]));
+      const myName = members.find((m) => m.userId === session.userId)?.username ?? session.username;
+      const older: GroupMessageItem[] = [];
+      for (const msg of page.messages) {
+        if (messageIds.current.has(msg.id)) continue;
+        messageIds.current.add(msg.id);
+        older.push({
+          id: msg.id,
+          username:
+            msg.from === "me"
+              ? myName
+              : (msg.senderId && names.get(msg.senderId)) ||
+                msg.senderId?.slice(0, 8) ||
+                "Member",
+          text: msg.text,
+          content: msg.content,
+          from: msg.from,
+          time: msg.time,
+          failed: msg.failed,
+        });
+      }
+      setMessages((prev) => [...older, ...prev]);
+      setMessageCursor(page.cursor);
+      setHasMoreMessages(page.hasMore);
+    } catch (e) {
+      Alert.alert("Error", friendlyError(e));
+    } finally {
+      setLoadingOlder(false);
+    }
+  }, [session, groupId, members, messageCursor, loadingOlder, hasMoreMessages, legacyHistory]);
 
   const refreshVoice = useCallback(
     async (channelId: string) => {
@@ -129,12 +188,14 @@ export default function GroupChatScreen() {
     void (async () => {
       setLoading(true);
       try {
-        const [memberList, ch] = await Promise.all([
+        const [memberList, ch, groupList] = await Promise.all([
           fetchGroupMembers(session.token, groupId),
           refreshChannels(),
+          fetchGroups(session.token),
         ]);
         if (cancelled) return;
         setMembers(memberList);
+        setCreatedBy(groupList.find((g) => g.id === groupId)?.createdBy ?? null);
         const admin = memberList.find((m) => m.userId === session.userId);
         setIsAdmin(admin?.role === "admin");
         const cipher = await loadGroupCipher(storage, session.userId, groupId);
@@ -169,7 +230,43 @@ export default function GroupChatScreen() {
   const handleGroupEvent = useCallback(
     (event: WsServerEvent) => {
       if (!session || !groupId) return;
-      if (event.type === "group_message" && event.envelope.groupId === groupId) {
+      if (
+        event.type === "channel_message" &&
+        activeChannelRef.current?.id === event.envelope.channelId
+      ) {
+        if (messageIds.current.has(event.envelope.id)) return;
+        messageIds.current.add(event.envelope.id);
+        void decryptChannelEnvelope(storage, groupId, event.envelope, session.userId).then(
+          (msg) => {
+            const author =
+              msg.from === "me"
+                ? (me?.username ?? session.username)
+                : (members.find((m) => m.userId === event.envelope.senderId)?.username ??
+                  event.envelope.senderId.slice(0, 8));
+            setMessages((prev) => {
+              if (prev.some((m) => m.id === msg.id)) return prev;
+              return [
+                ...prev,
+                {
+                  id: msg.id,
+                  username: author,
+                  text: msg.text,
+                  content: msg.content,
+                  from: msg.from,
+                  time: msg.time,
+                  failed: msg.failed,
+                },
+              ];
+            });
+          }
+        );
+        return;
+      }
+      if (
+        event.type === "group_message" &&
+        event.envelope.groupId === groupId &&
+        activeChannelRef.current?.name === "general"
+      ) {
         if (messageIds.current.has(event.envelope.id)) return;
         messageIds.current.add(event.envelope.id);
         void decryptGroupEnvelope(storage, groupId, event.envelope, session.userId).then(
@@ -235,23 +332,64 @@ export default function GroupChatScreen() {
     }
   }
 
+  async function handleShareKeyWithMember(targetUserId: string) {
+    if (!session || !device || !groupId) return;
+    await shareGroupKeyWithMember(
+      storage,
+      session.token,
+      device,
+      session.userId,
+      groupId,
+      targetUserId
+    );
+  }
+
+  async function refreshMembers() {
+    if (!session || !groupId) return;
+    setMembers(await fetchGroupMembers(session.token, groupId));
+  }
+
   async function handleSend() {
     if (!session || !groupId || !draft.trim() || !hasKey || !activeChannel) return;
+    if (activeChannel.type !== "text") return;
     const text = draft.trim();
+    const channelId = activeChannel.id;
     setDraft("");
     setSending(true);
+    const optimisticId = `${Date.now()}-local`;
+    messageIds.current.add(optimisticId);
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: optimisticId,
+        username: me?.username ?? session.username,
+        text,
+        content: { type: "text", text },
+        from: "me",
+        time: new Date().toISOString(),
+      },
+    ]);
     try {
-      const result = await sendGroupContentMessage(
+      const result = await sendChannelContentMessage(
         storage,
         session.userId,
         session.token,
         groupId,
+        channelId,
         { type: "text", text },
         "text"
       );
+      messageIds.current.delete(optimisticId);
       messageIds.current.add(result.messageId);
-      await loadMessages();
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === optimisticId ? { ...m, id: result.messageId, time: result.createdAt } : m
+        )
+      );
     } catch (e) {
+      messageIds.current.delete(optimisticId);
+      setMessages((prev) => prev.filter((m) => m.id !== optimisticId));
+      setDraft(text);
       Alert.alert("Send failed", friendlyError(e));
     } finally {
       setSending(false);
@@ -260,15 +398,17 @@ export default function GroupChatScreen() {
 
   async function handleAttachMedia() {
     if (!session || !groupId || !hasKey || sending || !activeChannel) return;
+    if (activeChannel.type !== "text") return;
     setSending(true);
     try {
       const prepared = await pickAndPrepareMedia(session.token);
       if (!prepared) return;
-      const result = await sendGroupContentMessage(
+      const result = await sendChannelContentMessage(
         storage,
         session.userId,
         session.token,
         groupId,
+        activeChannel.id,
         prepared.content,
         prepared.messageType
       );
@@ -368,6 +508,9 @@ export default function GroupChatScreen() {
               channelName={activeChannel.name}
               token={session!.token}
               hasKey={hasKey}
+              hasMore={hasMoreMessages}
+              loadingOlder={loadingOlder}
+              onLoadOlder={() => void loadOlderMessages()}
             />
           }
           composer={
@@ -414,10 +557,16 @@ export default function GroupChatScreen() {
 
       <GroupMembersSheet
         visible={membersOpen}
+        communityId={groupId!}
         communityName={displayName}
         members={members}
+        isAdmin={isAdmin}
+        isOwner={createdBy !== null && createdBy === session?.userId}
+        createdBy={createdBy}
         getPresence={friends.getPresence}
         onClose={() => setMembersOpen(false)}
+        onMembersChanged={() => void refreshMembers()}
+        onShareKey={isAdmin ? handleShareKeyWithMember : undefined}
       />
     </SafeAreaView>
   );

@@ -1,13 +1,15 @@
 import type { useCallSession, useFriends, useVaultChat } from "@vaultchat/chat-react";
 import { presenceLabel, MESSAGE_MARKDOWN_HINT } from "@vaultchat/client";
-import { MarkdownText, MarkdownComposerField } from "@vaultchat/chat-react";
+import { MarkdownText, MarkdownComposerField, PresenceDot } from "@vaultchat/chat-react";
 import { Virtuoso } from "react-virtuoso";
 import { groupByDate } from "@vaultchat/client";
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 type Chat = ReturnType<typeof useVaultChat>;
 type Calls = ReturnType<typeof useCallSession>;
 type Friends = ReturnType<typeof useFriends>;
+
+const START_INDEX = 100_000;
 
 function formatTime(ts: string | number) {
   return new Date(ts).toLocaleTimeString([], {
@@ -27,6 +29,9 @@ export function ChatPanel({
 }) {
   const peer = chat.peer!;
   const peerPresence = friends.getPresence(peer.id);
+  const [firstItemIndex, setFirstItemIndex] = useState(START_INDEX);
+  const prevFirstIdRef = useRef<string | undefined>(undefined);
+  const prevLenRef = useRef(0);
 
   const items = useMemo(() => {
     const groups = groupByDate(chat.messages);
@@ -43,17 +48,43 @@ export function ChatPanel({
     return flat;
   }, [chat.messages]);
 
+  useEffect(() => {
+    const firstId = chat.messages[0]?.id;
+    const len = chat.messages.length;
+
+    if (len === 0) {
+      setFirstItemIndex(START_INDEX);
+      prevFirstIdRef.current = undefined;
+      prevLenRef.current = 0;
+      return;
+    }
+
+    if (prevLenRef.current === 0) {
+      setFirstItemIndex(START_INDEX);
+    } else if (len > prevLenRef.current && firstId && firstId !== prevFirstIdRef.current) {
+      setFirstItemIndex((idx) => idx - (len - prevLenRef.current));
+    }
+
+    prevFirstIdRef.current = firstId;
+    prevLenRef.current = len;
+  }, [chat.messages]);
+
   const hasDecryptFailures = chat.messages.some((m) => m.status === "decrypt_failed");
 
   return (
     <main className="dc-chat">
       <header className="dc-chat__header">
-        <span className="dc-chat__avatar-sm">{peer.username[0]}</span>
-        <div className="dc-chat__header-text">
-          <h1 className="dc-chat__title">@{peer.username}</h1>
-          <span className={`dc-chat__status vc-presence--${peerPresence === "offline" ? "offline" : peerPresence}`}>
-            {presenceLabel(peerPresence)}
+        <div className="dc-chat__peer">
+          <span className="dc-chat__avatar-wrap">
+            <span className="dc-chat__avatar-sm" aria-hidden>
+              {peer.username[0]}
+            </span>
+            <PresenceDot status={peerPresence} className="dc-chat__avatar-dot" />
           </span>
+          <div className="dc-chat__header-text">
+            <h1 className="dc-chat__title">{peer.username}</h1>
+            <span className="dc-chat__status">{presenceLabel(peerPresence)}</span>
+          </div>
         </div>
         <div className="dc-chat__header-actions">
           {calls.canCall && (
@@ -74,10 +105,12 @@ export function ChatPanel({
               >
                 <VideoIcon />
               </button>
+              <span className="dc-chat__header-divider" aria-hidden />
             </>
           )}
           <span className="dc-chat__encrypted" title="End-to-end encrypted">
-            <LockIcon /> Encrypted
+            <LockIcon />
+            <span>Encrypted</span>
           </span>
         </div>
       </header>
@@ -104,6 +137,9 @@ export function ChatPanel({
           <Virtuoso
             style={{ height: "100%" }}
             data={items}
+            firstItemIndex={firstItemIndex}
+            initialTopMostItemIndex={items.length - 1}
+            followOutput="smooth"
             atTopStateChange={(atTop) => {
               if (atTop && chat.hasMoreMessages && !chat.loadingOlder) {
                 void chat.loadOlderMessages();
@@ -163,6 +199,12 @@ export function ChatPanel({
                   </div>
                 </div>
               );
+            }}
+            components={{
+              Header: () =>
+                chat.loadingOlder ? (
+                  <div className="dc-chat__load-older">Loading older messages…</div>
+                ) : null,
             }}
           />
         )}

@@ -12,6 +12,7 @@ export function FriendsProvider({ children }: { children: ReactNode }) {
 
   const friends = useFriends({
     token: session?.token ?? null,
+    userId: session?.userId ?? null,
     isConnected: connectionState === "connected",
     send: gatewaySend,
     onToast: (msg, type) => {

@@ -19,8 +19,24 @@ const nextConfig: NextConfig = {
     "@vaultchat/protocol",
     "@vaultchat/crypto",
     "@vaultchat/client",
+    "@vaultchat/chat-react",
   ],
   outputFileTracingRoot: path.join(rootDir, "../.."),
+  // libsignal/curve25519 Emscripten build references Node `fs`/`path` — unused in browser.
+  webpack: (config, { isServer }) => {
+    if (!isServer) {
+      config.resolve = config.resolve ?? {};
+      config.resolve.fallback = {
+        ...config.resolve.fallback,
+        fs: false,
+        path: false,
+        crypto: false,
+        stream: false,
+        buffer: false,
+      };
+    }
+    return config;
+  },
 };
 
 export default nextConfig;

@@ -1,31 +1,33 @@
 import type { useFriends } from "@vaultchat/chat-react";
 import type { CommunitySettingsTab } from "@vaultchat/chat-react";
-import { ChannelSettingsModal, CommunityChannelSidebar, CommunitySettingsModal, CreateChannelModal, ChannelTypeIcon, IconInvite, IconPlus, IconSend, IconSettings, MarkdownText, MarkdownComposerField, PresenceDot } from "@vaultchat/chat-react";
+import { ChannelSettingsModal, CommunityChannelSidebar, CommunitySettingsModal, CreateChannelModal, ChannelTypeIcon, IconInvite, IconPlus, IconSend, IconSettings, MarkdownText, MarkdownComposerField, MemberProfilePopout, PresenceDot } from "@vaultchat/chat-react";
 import {
+  blockUser,
   createChannelCategory,
-  createGroup,
   createLocalStorageAdapter,
+  decryptChannelEnvelope,
   decryptGroupEnvelope,
   deleteCommunityChannel,
-  distributeGroupKey,
+  demoteCommunityMember,
   fetchChannelCategories,
   fetchCommunityChannels,
   fetchGroupMembers,
-  fetchGroupMessages,
+  fetchGroups,
   fetchVoicePresence,
   friendlyError,
   joinVoiceChannel,
+  kickCommunityMember,
   leaveVoiceChannel,
-  loadDevice,
+  loadChannelHistory,
   loadGroupCipher,
   presenceLabel,
+  promoteCommunityMember,
   reshareGroupKey,
-  saveGroupKey,
-  sendGroupContentMessage,
+  sendChannelContentMessage,
+  sendFriendRequest,
   shareGroupKeyWithMember,
   MESSAGE_MARKDOWN_HINT,
 } from "@vaultchat/client";
-import { GroupCipher, type VaultDevice } from "@vaultchat/crypto";
 import type {
   ChannelCategoryInfo,
   ChannelInfo,
@@ -34,7 +36,8 @@ import type {
   VoicePresenceInfo,
   WsServerEvent,
 } from "@vaultchat/protocol";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
+import { loadUserDevice } from "./groupHelpers";
 
 type Friends = ReturnType<typeof useFriends>;
 
@@ -57,6 +60,8 @@ export function GroupServerView({
   friends,
   onBack,
   onServerEventRef,
+  onOpenDm,
+  groupKeysVersion = 0,
 }: {
   token: string;
   userId: string;
@@ -67,6 +72,8 @@ export function GroupServerView({
   friends: Friends;
   onBack: () => void;
   onServerEventRef?: React.MutableRefObject<((e: WsServerEvent) => void) | undefined>;
+  onOpenDm?: (peerId: string, peerUsername: string, draft?: string) => void;
+  groupKeysVersion?: number;
 }) {
   const storage = useMemo(() => createLocalStorageAdapter(), []);
   const [categories, setCategories] = useState<ChannelCategoryInfo[]>([]);
@@ -74,6 +81,10 @@ export function GroupServerView({
   const [activeChannel, setActiveChannel] = useState<ChannelInfo | null>(null);
   const [members, setMembers] = useState<GroupMemberInfo[]>([]);
   const [messages, setMessages] = useState<GroupMessage[]>([]);
+  const [messageCursor, setMessageCursor] = useState<string | undefined>();
+  const [hasMoreMessages, setHasMoreMessages] = useState(false);
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const [legacyHistory, setLegacyHistory] = useState(false);
   const [draft, setDraft] = useState("");
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
@@ -90,9 +101,23 @@ export function GroupServerView({
   const [settingsTab, setSettingsTab] = useState<CommunitySettingsTab>("overview");
   const [displayName, setDisplayName] = useState(groupName);
   const [resharing, setResharing] = useState(false);
+  const [profileMember, setProfileMember] = useState<GroupMemberInfo | null>(null);
+  const [profileAnchor, setProfileAnchor] = useState<{ top: number; left: number } | null>(null);
+  const [createdBy, setCreatedBy] = useState<string | null>(null);
+  const messageIdsRef = useRef(new Set<string>());
+  const activeChannelRef = useRef<ChannelInfo | null>(null);
+  activeChannelRef.current = activeChannel;
 
   const me = members.find((m) => m.userId === userId);
   const isAdmin = me?.role === "admin";
+  const isOwner = createdBy !== null && createdBy === userId;
+  const friendIds = useMemo(() => new Set(friends.friends.map((f) => f.userId)), [friends.friends]);
+
+  function openMemberProfile(m: GroupMemberInfo, e: MouseEvent) {
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    setProfileAnchor({ top: rect.top, left: rect.left });
+    setProfileMember(m);
+  }
 
   const refreshMembers = useCallback(async () => {
     const memberList = await fetchGroupMembers(token, groupId);
@@ -130,24 +155,91 @@ export function GroupServerView({
     return ch.channels;
   }, [token, groupId]);
 
-  const loadMessages = useCallback(async () => {
-    const { messages: envelopes } = await fetchGroupMessages(token, groupId);
-    const memberMap = new Map(members.map((m) => [m.userId, m.username]));
-    const parsed: GroupMessage[] = [];
-    for (const envelope of envelopes) {
-      const msg = await decryptGroupEnvelope(storage, groupId, envelope, userId);
-      const author = memberMap.get(envelope.senderId) ?? envelope.senderId.slice(0, 8);
-      parsed.push({
+  const loadMessages = useCallback(
+    async (channelId: string) => {
+      let device: Awaited<ReturnType<typeof loadUserDevice>> | undefined;
+      try {
+        device = await loadUserDevice(token, userId, username, deviceId);
+      } catch {
+        // recovery optional
+      }
+      const page = await loadChannelHistory(storage, token, groupId, channelId, userId, {
+        device,
+      });
+      const memberMap = new Map(members.map((m) => [m.userId, m.username]));
+      const parsed: GroupMessage[] = page.messages.map((msg) => ({
         id: msg.id,
         from: msg.from,
-        username: msg.from === "me" ? username : author,
+        username:
+          msg.from === "me"
+            ? username
+            : (msg.senderId && memberMap.get(msg.senderId)) || msg.senderId?.slice(0, 8) || "Member",
         text: msg.text,
         time: msg.time,
         failed: msg.failed,
+      }));
+      messageIdsRef.current = new Set(parsed.map((m) => m.id));
+      setMessages(parsed);
+      setMessageCursor(page.cursor);
+      setHasMoreMessages(page.hasMore);
+      setLegacyHistory(Boolean(page.legacy));
+      if (parsed.length > 0 && parsed.every((m) => m.failed)) {
+        setError(
+          "Couldn't decrypt channel history. Your community encryption key may be out of date — open Server Settings and re-share the key, or ask an admin to re-share."
+        );
+      }
+    },
+    [token, groupId, storage, userId, username, deviceId, members]
+  );
+
+  const loadOlderMessages = useCallback(async () => {
+    const channel = activeChannelRef.current;
+    if (!channel || !messageCursor || loadingOlder || !hasMoreMessages) return;
+    setLoadingOlder(true);
+    try {
+      const page = await loadChannelHistory(storage, token, groupId, channel.id, userId, {
+        cursor: messageCursor,
+        legacy: legacyHistory,
       });
+      const memberMap = new Map(members.map((m) => [m.userId, m.username]));
+      const older: GroupMessage[] = [];
+      for (const msg of page.messages) {
+        if (messageIdsRef.current.has(msg.id)) continue;
+        messageIdsRef.current.add(msg.id);
+        older.push({
+          id: msg.id,
+          from: msg.from,
+          username:
+            msg.from === "me"
+              ? username
+              : (msg.senderId && memberMap.get(msg.senderId)) ||
+                msg.senderId?.slice(0, 8) ||
+                "Member",
+          text: msg.text,
+          time: msg.time,
+          failed: msg.failed,
+        });
+      }
+      setMessages((prev) => [...older, ...prev]);
+      setMessageCursor(page.cursor);
+      setHasMoreMessages(page.hasMore);
+    } catch (e) {
+      setError(friendlyError(e));
+    } finally {
+      setLoadingOlder(false);
     }
-    setMessages(parsed);
-  }, [token, groupId, storage, userId, username, members]);
+  }, [
+    storage,
+    token,
+    groupId,
+    userId,
+    username,
+    members,
+    messageCursor,
+    loadingOlder,
+    hasMoreMessages,
+    legacyHistory,
+  ]);
 
   const refreshVoice = useCallback(
     async (channelId: string) => {
@@ -163,12 +255,14 @@ export function GroupServerView({
     setError(null);
     void (async () => {
       try {
-        const [memberList, ch] = await Promise.all([
+        const [memberList, ch, groupList] = await Promise.all([
           fetchGroupMembers(token, groupId),
           refreshChannels(),
+          fetchGroups(token),
         ]);
         if (cancelled) return;
         setMembers(memberList);
+        setCreatedBy(groupList.find((g) => g.id === groupId)?.createdBy ?? null);
         const cipher = await loadGroupCipher(storage, userId, groupId);
         setHasGroupKey(Boolean(cipher));
         const general =
@@ -188,9 +282,16 @@ export function GroupServerView({
   }, [token, groupId, userId, storage, refreshChannels]);
 
   useEffect(() => {
+    if (!groupKeysVersion) return;
+    void loadGroupCipher(storage, userId, groupId).then((cipher) => {
+      setHasGroupKey(Boolean(cipher));
+    });
+  }, [groupKeysVersion, storage, userId, groupId]);
+
+  useEffect(() => {
     if (!activeChannel || activeChannel.type !== "text") return;
-    void loadMessages().catch((e) => setError(friendlyError(e)));
-  }, [activeChannel, loadMessages]);
+    void loadMessages(activeChannel.id).catch((e) => setError(friendlyError(e)));
+  }, [activeChannel, loadMessages, groupKeysVersion]);
 
   useEffect(() => {
     if (!activeChannel || activeChannel.type !== "voice") return;
@@ -200,26 +301,53 @@ export function GroupServerView({
   useEffect(() => {
     if (!onServerEventRef) return;
     const handler = (event: WsServerEvent) => {
-      if (event.type === "group_message" && event.envelope.groupId === groupId) {
+      if (
+        event.type === "channel_message" &&
+        activeChannelRef.current?.id === event.envelope.channelId
+      ) {
         void (async () => {
-          const msg = await decryptGroupEnvelope(storage, groupId, event.envelope, userId);
+          const msg = await decryptChannelEnvelope(storage, groupId, event.envelope, userId);
+          if (messageIdsRef.current.has(msg.id)) return;
+          messageIdsRef.current.add(msg.id);
           const author =
             members.find((m) => m.userId === event.envelope.senderId)?.username ??
             event.envelope.senderId.slice(0, 8);
-          setMessages((prev) => {
-            if (prev.some((m) => m.id === msg.id)) return prev;
-            return [
-              ...prev,
-              {
-                id: msg.id,
-                from: msg.from,
-                username: msg.from === "me" ? username : author,
-                text: msg.text,
-                time: msg.time,
-                failed: msg.failed,
-              },
-            ];
-          });
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: msg.id,
+              from: msg.from,
+              username: msg.from === "me" ? username : author,
+              text: msg.text,
+              time: msg.time,
+              failed: msg.failed,
+            },
+          ]);
+        })();
+      }
+      if (
+        event.type === "group_message" &&
+        event.envelope.groupId === groupId &&
+        activeChannelRef.current?.name === "general"
+      ) {
+        void (async () => {
+          const msg = await decryptGroupEnvelope(storage, groupId, event.envelope, userId);
+          if (messageIdsRef.current.has(msg.id)) return;
+          messageIdsRef.current.add(msg.id);
+          const author =
+            members.find((m) => m.userId === event.envelope.senderId)?.username ??
+            event.envelope.senderId.slice(0, 8);
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: msg.id,
+              from: msg.from,
+              username: msg.from === "me" ? username : author,
+              text: msg.text,
+              time: msg.time,
+              failed: msg.failed,
+            },
+          ]);
         })();
       }
       if (
@@ -237,20 +365,38 @@ export function GroupServerView({
   }, [onServerEventRef, groupId, storage, userId, username, members, activeChannel]);
 
   async function handleSend() {
-    if (!draft.trim() || !hasGroupKey) return;
+    if (!draft.trim() || !hasGroupKey || !activeChannel || activeChannel.type !== "text") return;
+    const text = draft.trim();
+    const channelId = activeChannel.id;
     setSending(true);
+    setDraft("");
+    const optimisticId = crypto.randomUUID();
+    messageIdsRef.current.add(optimisticId);
+    setMessages((prev) => [
+      ...prev,
+      { id: optimisticId, from: "me", username, text, time: new Date().toISOString() },
+    ]);
     try {
-      await sendGroupContentMessage(
+      const result = await sendChannelContentMessage(
         storage,
         userId,
         token,
         groupId,
-        { type: "text", text: draft.trim() },
+        channelId,
+        { type: "text", text },
         "text"
       );
-      setDraft("");
-      await loadMessages();
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === optimisticId ? { ...m, id: result.messageId, time: result.createdAt } : m
+        )
+      );
+      messageIdsRef.current.delete(optimisticId);
+      messageIdsRef.current.add(result.messageId);
     } catch (e) {
+      messageIdsRef.current.delete(optimisticId);
+      setMessages((prev) => prev.filter((m) => m.id !== optimisticId));
+      setDraft(text);
       setError(friendlyError(e));
     } finally {
       setSending(false);
@@ -402,25 +548,37 @@ export function GroupServerView({
                   <p>This is the start of the #{activeChannel.name} channel.</p>
                 </div>
               ) : (
-                messages.map((m) => (
-                  <div key={m.id} className="dc-gc-msg">
-                    <span className="dc-gc-msg__avatar">{m.username[0]}</span>
-                    <div className="dc-gc-msg__body">
-                      <div className="dc-gc-msg__meta">
-                        <span className="dc-gc-msg__author">{m.username}</span>
-                        <span className="dc-gc-msg__time">
-                          {new Date(m.time).toLocaleTimeString([], {
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })}
-                        </span>
+                <>
+                  {hasMoreMessages && (
+                    <button
+                      type="button"
+                      className="dc-gc-messages__older"
+                      disabled={loadingOlder}
+                      onClick={() => void loadOlderMessages()}
+                    >
+                      {loadingOlder ? "Loading older messages…" : "Load older messages"}
+                    </button>
+                  )}
+                  {messages.map((m) => (
+                    <div key={m.id} className="dc-gc-msg">
+                      <span className="dc-gc-msg__avatar">{m.username[0]}</span>
+                      <div className="dc-gc-msg__body">
+                        <div className="dc-gc-msg__meta">
+                          <span className="dc-gc-msg__author">{m.username}</span>
+                          <span className="dc-gc-msg__time">
+                            {new Date(m.time).toLocaleTimeString([], {
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
+                          </span>
+                        </div>
+                        <p className={`dc-gc-msg__text${m.failed ? " dc-gc-msg__text--failed" : ""}`}>
+                          <MarkdownText text={m.text} />
+                        </p>
                       </div>
-                      <p className={`dc-gc-msg__text${m.failed ? " dc-gc-msg__text--failed" : ""}`}>
-                        <MarkdownText text={m.text} />
-                      </p>
                     </div>
-                  </div>
-                ))
+                  ))}
+                </>
               )}
             </div>
 
@@ -548,29 +706,128 @@ export function GroupServerView({
           <section>
             <h3>Online — {activeMembers.length}</h3>
             <ul>
-              {activeMembers.map((m) => (
-                <li key={m.userId}>
-                  <span className="dc-gc-members__avatar">{m.username[0]}</span>
-                  <span>{m.username}</span>
-                  <PresenceDot status={friends.getPresence(m.userId)} className="dc-gc-members__dot" />
-                  <span className="dc-gc-members__status">{presenceLabel(friends.getPresence(m.userId))}</span>
-                </li>
-              ))}
+              {activeMembers.map((m) => {
+                const status = friends.getPresence(m.userId);
+                return (
+                  <li key={m.userId}>
+                    <button
+                      type="button"
+                      className={`dc-gc-members__row${profileMember?.userId === m.userId ? " dc-gc-members__row--active" : ""}`}
+                      onClick={(e) => openMemberProfile(m, e)}
+                    >
+                      <span className="dc-gc-members__avatar">{m.username[0]}</span>
+                      <span>{m.username}</span>
+                      {m.role === "admin" && <span className="dc-gc-members__badge">Admin</span>}
+                      <PresenceDot status={status} className="dc-gc-members__dot" />
+                      <span className="dc-gc-members__status">{presenceLabel(status)}</span>
+                    </button>
+                  </li>
+                );
+              })}
             </ul>
           </section>
         )}
         <section>
           <h3>Offline — {offlineMembers.length}</h3>
           <ul>
-            {offlineMembers.map((m) => (
-              <li key={m.userId} className="dc-gc-members__offline">
-                <span className="dc-gc-members__avatar">{m.username[0]}</span>
-                <span>{m.username}</span>
-              </li>
-            ))}
+            {offlineMembers.map((m) => {
+              const status = friends.getPresence(m.userId);
+              return (
+                <li key={m.userId} className="dc-gc-members__offline">
+                  <button
+                    type="button"
+                    className={`dc-gc-members__row${profileMember?.userId === m.userId ? " dc-gc-members__row--active" : ""}`}
+                    onClick={(e) => openMemberProfile(m, e)}
+                  >
+                    <span className="dc-gc-members__avatar">{m.username[0]}</span>
+                    <span>{m.username}</span>
+                    {m.role === "admin" && <span className="dc-gc-members__badge">Admin</span>}
+                    <PresenceDot status={status} className="dc-gc-members__dot" />
+                    <span className="dc-gc-members__status">{presenceLabel(status)}</span>
+                  </button>
+                </li>
+              );
+            })}
           </ul>
         </section>
       </aside>
+
+      {profileMember && (
+        <MemberProfilePopout
+          member={profileMember}
+          status={friends.getPresence(profileMember.userId)}
+          isSelf={profileMember.userId === userId}
+          isViewerAdmin={isAdmin}
+          isFriend={friendIds.has(profileMember.userId)}
+          anchor={profileAnchor}
+          onClose={() => {
+            setProfileMember(null);
+            setProfileAnchor(null);
+          }}
+          onMessage={(peerId, peerUsername, draft) => {
+            onOpenDm?.(peerId, peerUsername, draft);
+          }}
+          onAddFriend={
+            friendIds.has(profileMember.userId)
+              ? undefined
+              : async () => {
+                  await sendFriendRequest(token, profileMember.username);
+                  await friends.refresh();
+                }
+          }
+          onBlock={async () => {
+            if (!window.confirm(`Block @${profileMember.username}?`)) return;
+            await blockUser(token, profileMember.username);
+            setProfileMember(null);
+          }}
+          onKick={
+            isAdmin && profileMember.role !== "admin"
+              ? async () => {
+                  if (!window.confirm(`Remove ${profileMember.username} from this server?`)) return;
+                  await kickCommunityMember(token, groupId, profileMember.userId);
+                  setMembers((prev) => prev.filter((x) => x.userId !== profileMember.userId));
+                  setProfileMember(null);
+                }
+              : undefined
+          }
+          onPromote={
+            isAdmin && profileMember.role !== "admin"
+              ? async () => {
+                  await promoteCommunityMember(token, groupId, profileMember.userId);
+                  setMembers((prev) =>
+                    prev.map((x) =>
+                      x.userId === profileMember.userId ? { ...x, role: "admin" as const } : x
+                    )
+                  );
+                }
+              : undefined
+          }
+          onDemote={
+            isOwner &&
+            profileMember.role === "admin" &&
+            profileMember.userId !== createdBy
+              ? async () => {
+                  await demoteCommunityMember(token, groupId, profileMember.userId);
+                  setMembers((prev) =>
+                    prev.map((x) =>
+                      x.userId === profileMember.userId ? { ...x, role: "member" as const } : x
+                    )
+                  );
+                  setProfileMember((prev) =>
+                    prev ? { ...prev, role: "member" as const } : prev
+                  );
+                }
+              : undefined
+          }
+          onShareKey={
+            isAdmin
+              ? async () => {
+                  await handleShareKeyWithMember(profileMember.userId);
+                }
+              : undefined
+          }
+        />
+      )}
 
       {settingsOpen && isAdmin && (
         <CommunitySettingsModal
@@ -579,6 +836,7 @@ export function GroupServerView({
           token={token}
           userId={userId}
           isAdmin={isAdmin}
+          isOwner={isOwner}
           friends={friends.friends}
           resharing={resharing}
           initialTab={settingsTab}
@@ -615,31 +873,4 @@ export function GroupServerView({
       )}
     </div>
   );
-}
-
-export async function createGroupWithKey(
-  token: string,
-  userId: string,
-  username: string,
-  deviceId: number,
-  device: VaultDevice,
-  name: string,
-  memberUsernames: string[]
-) {
-  const storage = createLocalStorageAdapter();
-  const group = await createGroup(token, { name, memberUsernames });
-  const { keyBase64 } = await GroupCipher.generate();
-  await saveGroupKey(storage, userId, group.id, keyBase64);
-  await distributeGroupKey(storage, token, device, userId, group.id, keyBase64);
-  return group;
-}
-
-export async function loadUserDevice(
-  token: string,
-  userId: string,
-  username: string,
-  deviceId: number
-) {
-  const storage = createLocalStorageAdapter();
-  return loadDevice(storage, { userId, username, token, deviceId });
 }

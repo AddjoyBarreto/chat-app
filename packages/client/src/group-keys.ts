@@ -48,16 +48,34 @@ export async function saveGroupKey(
   await saveKeyMap(storage, userId, map);
 }
 
+export async function getStoredGroupKey(
+  storage: StorageAdapter,
+  userId: string,
+  groupId: string
+): Promise<string | null> {
+  const map = await loadKeyMap(storage, userId);
+  return map[groupId] ?? null;
+}
+
+/**
+ * Persist a community/group AES key from a `group_key` DM.
+ * By default, does not replace an existing different key (avoids older inbox
+ * pages clobbering a newer key during catch-up). Pass `replaceExisting: true`
+ * for live reshare delivery.
+ */
 export async function captureGroupKeyFromContent(
   storage: StorageAdapter,
   userId: string,
-  content: import("@vaultchat/protocol").MessageContent
+  content: import("@vaultchat/protocol").MessageContent,
+  opts?: { replaceExisting?: boolean }
 ): Promise<boolean> {
-  if (content.type === "group_key" && content.groupKey) {
-    await saveGroupKey(storage, userId, content.groupKey.groupId, content.groupKey.key);
-    return true;
-  }
-  return false;
+  if (content.type !== "group_key" || !content.groupKey) return false;
+  const { groupId, key } = content.groupKey;
+  const existing = await getStoredGroupKey(storage, userId, groupId);
+  if (existing === key) return false;
+  if (existing && opts?.replaceExisting === false) return false;
+  await saveGroupKey(storage, userId, groupId, key);
+  return true;
 }
 
 export async function loadGroupCipher(
@@ -70,11 +88,24 @@ export async function loadGroupCipher(
   return GroupCipher.fromKeyBase64(key);
 }
 
-export async function getStoredGroupKey(
+/** Try candidate keys until one decrypts sample ciphertext; persist the winner. */
+export async function adoptWorkingGroupKey(
   storage: StorageAdapter,
   userId: string,
-  groupId: string
-): Promise<string | null> {
-  const map = await loadKeyMap(storage, userId);
-  return map[groupId] ?? null;
+  groupId: string,
+  sampleCiphertext: string,
+  candidateKeys: string[]
+): Promise<boolean> {
+  const unique = [...new Set(candidateKeys.filter(Boolean))];
+  for (const key of unique) {
+    try {
+      const cipher = GroupCipher.fromKeyBase64(key);
+      await cipher.decrypt(sampleCiphertext);
+      await saveGroupKey(storage, userId, groupId, key);
+      return true;
+    } catch {
+      // try next
+    }
+  }
+  return false;
 }

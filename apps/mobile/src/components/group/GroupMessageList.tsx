@@ -21,13 +21,24 @@ interface GroupMessageListProps {
   channelName: string;
   token: string;
   hasKey: boolean;
+  hasMore?: boolean;
+  loadingOlder?: boolean;
+  onLoadOlder?: () => void;
 }
 
 function formatTime(iso: string) {
   return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
-export function GroupMessageList({ messages, channelName, token, hasKey }: GroupMessageListProps) {
+export function GroupMessageList({
+  messages,
+  channelName,
+  token,
+  hasKey,
+  hasMore,
+  loadingOlder,
+  onLoadOlder,
+}: GroupMessageListProps) {
   return (
     <FlatList
       data={messages}
@@ -36,6 +47,20 @@ export function GroupMessageList({ messages, channelName, token, hasKey }: Group
       contentContainerStyle={messages.length === 0 ? styles.listEmpty : styles.listContent}
       keyboardShouldPersistTaps="always"
       keyboardDismissMode="interactive"
+      maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
+      onScroll={(e) => {
+        if (e.nativeEvent.contentOffset.y < 40 && hasMore && !loadingOlder && onLoadOlder) {
+          onLoadOlder();
+        }
+      }}
+      scrollEventThrottle={200}
+      ListHeaderComponent={
+        loadingOlder ? (
+          <Text style={styles.older}>Loading older messages…</Text>
+        ) : hasMore ? (
+          <Text style={styles.older}>Scroll up for older messages</Text>
+        ) : null
+      }
       ListEmptyComponent={
         <View style={styles.welcome}>
           <View style={styles.welcomeIcon}>
@@ -91,6 +116,12 @@ const styles = StyleSheet.create({
   list: { flex: 1, backgroundColor: theme.bgApp },
   listContent: { paddingVertical: theme.spacing.md, paddingHorizontal: theme.spacing.md },
   listEmpty: { flexGrow: 1 },
+  older: {
+    textAlign: "center",
+    color: theme.textMuted,
+    fontSize: theme.fontSize.sm,
+    paddingVertical: theme.spacing.sm,
+  },
   welcome: {
     flex: 1,
     justifyContent: "center",

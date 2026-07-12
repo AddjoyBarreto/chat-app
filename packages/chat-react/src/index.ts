@@ -34,3 +34,4 @@ export {
 } from "./CommunityIcons.js";
 export { MarkdownText } from "./MarkdownText.js";
 export { MarkdownComposerField } from "./MarkdownComposerField.js";
+export { MemberProfilePopout, type MemberProfilePopoutProps } from "./MemberProfilePopout.js";

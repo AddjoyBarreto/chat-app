@@ -38,6 +38,7 @@ export function App() {
 
   const friends = useFriends({
     token: chat.session?.token ?? null,
+    userId: chat.session?.userId ?? null,
     isConnected: chat.isConnected,
     send: chat.send,
     onToast: showToast,

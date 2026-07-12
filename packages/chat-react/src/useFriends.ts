@@ -2,6 +2,7 @@ import {
   acceptFriendRequest,
   fetchFriendRequests,
   fetchFriends,
+  publicPresenceStatus,
   rejectFriendRequest,
   sendFriendRequest,
 } from "@vaultchat/client";
@@ -18,12 +19,20 @@ import { usePresenceActivity } from "./usePresenceActivity.js";
 
 export interface UseFriendsOptions {
   token: string | null;
+  /** Current user id — used so getPresence(self) reflects your own status. */
+  userId?: string | null;
   isConnected?: boolean;
   send?: (event: WsClientEvent) => boolean;
   onToast?: (message: string, type?: "info" | "error") => void;
 }
 
-export function useFriends({ token, isConnected, send, onToast }: UseFriendsOptions) {
+export function useFriends({
+  token,
+  userId = null,
+  isConnected,
+  send,
+  onToast,
+}: UseFriendsOptions) {
   const onToastRef = useRef(onToast);
   onToastRef.current = onToast;
   const toast = useCallback((message: string, type?: "info" | "error") => {
@@ -38,6 +47,10 @@ export function useFriends({ token, isConnected, send, onToast }: UseFriendsOpti
   );
   const [ownPresence, setOwnPresence] = useState<SettablePresenceStatus>("online");
   const manualModeRef = useRef<SettablePresenceStatus | "auto">("auto");
+  const userIdRef = useRef(userId);
+  userIdRef.current = userId;
+  const ownPresenceRef = useRef(ownPresence);
+  ownPresenceRef.current = ownPresence;
 
   const refresh = useCallback(async () => {
     if (!token) {
@@ -74,11 +87,11 @@ export function useFriends({ token, isConnected, send, onToast }: UseFriendsOpti
     wasConnectedRef.current = connected;
   }, [isConnected, token, refresh]);
 
-  const applyPresenceUpdate = useCallback((userId: string, status: PresenceStatus) => {
+  const applyPresenceUpdate = useCallback((targetUserId: string, status: PresenceStatus) => {
     setPresenceByUserId((prev) => {
       const next = new Map(prev);
-      if (status === "offline") next.delete(userId);
-      else next.set(userId, status);
+      if (status === "offline") next.delete(targetUserId);
+      else next.set(targetUserId, status);
       return next;
     });
   }, []);
@@ -96,9 +109,6 @@ export function useFriends({ token, isConnected, send, onToast }: UseFriendsOpti
     },
     [send, toast]
   );
-
-  const ownPresenceRef = useRef(ownPresence);
-  ownPresenceRef.current = ownPresence;
 
   useEffect(() => {
     if (!isConnected || !send) return;
@@ -167,12 +177,17 @@ export function useFriends({ token, isConnected, send, onToast }: UseFriendsOpti
   );
 
   const getPresence = useCallback(
-    (userId: string): PresenceStatus => presenceByUserId.get(userId) ?? "offline",
-    [presenceByUserId]
+    (targetUserId: string): PresenceStatus => {
+      if (userIdRef.current && targetUserId === userIdRef.current) {
+        return publicPresenceStatus(ownPresence);
+      }
+      return presenceByUserId.get(targetUserId) ?? "offline";
+    },
+    [presenceByUserId, ownPresence]
   );
 
   const isOnline = useCallback(
-    (userId: string) => getPresence(userId) !== "offline",
+    (targetUserId: string) => getPresence(targetUserId) !== "offline",
     [getPresence]
   );
 

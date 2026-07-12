@@ -221,36 +221,40 @@ export interface InboxSyncOptions {
 }
 
 /**
- * Fetch recent inbox messages missed while offline / disconnected.
+ * Fetch inbox messages missed while offline / disconnected.
+ * Walks pagination until exhausted (capped) so catch-up is not limited to one page.
  * Dedupes by message id and relies on decrypt cache for history safety.
  */
 export async function syncMissedInbox(options: InboxSyncOptions): Promise<number> {
-  const { messages } = await fetchInbox(options.token);
+  const maxPages = 20;
+  let cursor: string | undefined;
   let synced = 0;
+  let pages = 0;
 
-  for (const envelope of messages) {
-    if (options.isProcessed(envelope.id)) continue;
-    options.markProcessed(envelope.id);
+  do {
+    const page = await fetchInbox(options.token, { cursor, limit: 50 });
+    for (const envelope of page.messages) {
+      if (options.isProcessed(envelope.id)) continue;
+      options.markProcessed(envelope.id);
 
-    const display = await decryptEnvelope(
-      options.device,
-      envelope,
-      options.userId,
-      {
+      const display = await decryptEnvelope(options.device, envelope, options.userId, {
         storage: options.storage,
         userId: options.userId,
         myDeviceId: options.device.deviceId,
         tryDecrypt: true,
-      }
-    );
+      });
 
-    if (display.status !== "decrypt_failed") {
-      await persistDevice(options.storage, options.device, options.userId);
+      if (display.status !== "decrypt_failed") {
+        await persistDevice(options.storage, options.device, options.userId);
+      }
+
+      await options.onMessage(display, envelope);
+      synced++;
     }
 
-    await options.onMessage(display, envelope);
-    synced++;
-  }
+    cursor = page.hasMore ? page.cursor : undefined;
+    pages++;
+  } while (cursor && pages < maxPages);
 
   return synced;
 }

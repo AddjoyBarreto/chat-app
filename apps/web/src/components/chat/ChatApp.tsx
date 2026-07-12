@@ -5,7 +5,7 @@ import {
   cacheDecryptedMessage,
   createLocalStorageAdapter,
   fetchGroups,
-  fetchInbox,
+  forEachInboxPage,
   fetchOwnDeviceBundles,
   fetchRecipientDeviceBundles,
   MessageInbox,
@@ -157,6 +157,7 @@ export function ChatApp() {
 
   const deviceRef = useRef<VaultDevice | null>(null);
   const messageIdsRef = useRef(new Set<string>());
+  const openGenerationRef = useRef(0);
   const inboxRef = useRef(new MessageInbox());
   const readStateRef = useRef<ReadStateManager | null>(null);
   const callsRef = useRef<ReturnType<typeof useCallSession> | null>(null);
@@ -190,7 +191,10 @@ export function ChatApp() {
   }, [peer?.id]);
 
   const handleIncoming = useCallback(
-    async (envelope: import("@vaultchat/protocol").MessageEnvelope) => {
+    async (
+      envelope: import("@vaultchat/protocol").MessageEnvelope,
+      opts?: { inboxCatchUp?: boolean; appliedGroupKeys?: Set<string> }
+    ) => {
       const device = deviceRef.current;
       if (!device || !session) return;
 
@@ -211,29 +215,38 @@ export function ChatApp() {
           persistDevice(device, session.userId);
         }
 
-        if (await captureGroupKeyFromContent(webStorage, session.userId, display.content)) {
-          show("Group encryption key received", "info");
-          const gk =
-            display.content.type === "group_key" ? display.content.groupKey : undefined;
-          if (gk) {
+        if (display.content.type === "group_key" && display.content.groupKey) {
+          const gid = display.content.groupKey.groupId;
+          if (opts?.inboxCatchUp && opts.appliedGroupKeys?.has(gid)) {
+            return;
+          }
+          const saved = await captureGroupKeyFromContent(
+            webStorage,
+            session.userId,
+            display.content,
+            { replaceExisting: true }
+          );
+          opts?.appliedGroupKeys?.add(gid);
+          if (saved) {
+            show("Group encryption key received", "info");
             const inGroup =
-              activeGroupRef.current?.id === gk.groupId ||
-              activeCommunityRef.current?.id === gk.groupId;
+              activeGroupRef.current?.id === gid ||
+              activeCommunityRef.current?.id === gid;
             if (inGroup) {
               setGroupHasKey(true);
               setGroupKeyVersion((v) => v + 1);
-              if (activeGroupRef.current?.id === gk.groupId) {
-                void loadGroupMessages(session.token, gk.groupId, session.userId).then(
-                  (loaded) => {
-                    for (const m of loaded) groupMessageIdsRef.current.add(m.id);
-                    setGroupMessages(loaded);
-                  }
-                );
+              if (activeGroupRef.current?.id === gid) {
+                void loadGroupMessages(session.token, gid, session.userId).then((loaded) => {
+                  for (const m of loaded) groupMessageIdsRef.current.add(m.id);
+                  setGroupMessages(loaded);
+                });
               }
             }
           }
           return;
         }
+
+        if (peerId === session.userId) return;
 
         setPreviews((p) => ({ ...p, [peerId]: previewText(display) }));
 
@@ -317,16 +330,21 @@ export function ChatApp() {
       void (async () => {
         if (!session) return;
         try {
-          const { messages } = await fetchInbox(session.token);
-          for (const envelope of messages) {
-            if (inboxRef.current.hasProcessed(envelope.id)) continue;
-            const peerId = inboxRef.current.peerIdForEnvelope(envelope, session.userId);
-            if (readStateRef.current?.isPeerMessageRead(peerId, envelope.createdAt)) {
-              inboxRef.current.markProcessed(envelope.id);
-              continue;
+          const appliedGroupKeys = new Set<string>();
+          await forEachInboxPage(session.token, async (messages) => {
+            for (const envelope of messages) {
+              if (inboxRef.current.hasProcessed(envelope.id)) continue;
+              const peerId = inboxRef.current.peerIdForEnvelope(envelope, session.userId);
+              if (
+                peerId !== session.userId &&
+                readStateRef.current?.isPeerMessageRead(peerId, envelope.createdAt)
+              ) {
+                inboxRef.current.markProcessed(envelope.id);
+                continue;
+              }
+              await handleIncoming(envelope, { inboxCatchUp: true, appliedGroupKeys });
             }
-            await handleIncoming(envelope);
-          }
+          });
         } catch {
           // non-fatal offline catch-up
         }
@@ -348,6 +366,7 @@ export function ChatApp() {
 
   const friends = useFriends({
     token: session?.token ?? null,
+    userId: session?.userId ?? null,
     isConnected,
     send,
     onToast: show,
@@ -609,6 +628,7 @@ export function ChatApp() {
 
   async function openConversation(peerId: string, peerUsername: string) {
     if (!session) return;
+    const generation = ++openGenerationRef.current;
     const conv = conversations.find((c) => c.peerId === peerId);
     if (conv) readStateRef.current?.markPeerRead(peerId, conv.lastMessageAt);
     setUnreadByPeer((prev) => {
@@ -630,6 +650,8 @@ export function ChatApp() {
         peerId,
         { limit: 50 }
       );
+      if (generation !== openGenerationRef.current) return;
+
       const device = deviceRef.current!;
       const decrypted: DisplayMessage[] = [];
 
@@ -645,6 +667,8 @@ export function ChatApp() {
         messageIdsRef.current.add(display.id);
       }
 
+      if (generation !== openGenerationRef.current) return;
+
       setMessages(sortMessages(decrypted));
       setMessageCursor(cursor);
       setHasMoreMessages(Boolean(hasMore));
@@ -655,11 +679,12 @@ export function ChatApp() {
         readStateRef.current?.markPeerRead(peerId, last.time);
       }
     } catch (e) {
+      if (generation !== openGenerationRef.current) return;
       show(friendlyError(e), "error");
       setScreen("list");
       setPeer(null);
     } finally {
-      setLoading(false);
+      if (generation === openGenerationRef.current) setLoading(false);
     }
   }
 
@@ -719,6 +744,21 @@ export function ChatApp() {
         if (result.recovered) {
           setGroupKeyVersion((v) => v + 1);
           show("Encryption key created for this community", "info");
+        }
+        if (result.hasKey || result.recovered) {
+          const { syncGroupKeyToOwnDevices, getStoredGroupKey } = await import(
+            "@vaultchat/client"
+          );
+          const key = await getStoredGroupKey(webStorage, session.userId, communityId);
+          if (key) {
+            await syncGroupKeyToOwnDevices(
+              session.token,
+              deviceRef.current,
+              session.userId,
+              communityId,
+              key
+            );
+          }
         }
       }
     } catch (e) {
@@ -1172,7 +1212,7 @@ export function ChatApp() {
   return (
     <div className="vc-app">
       <div className="vc-app-shell">
-        {(screen === "list" || screen === "community") && groups.length > 0 && (
+        {(screen === "list" || screen === "community") && (
           <WebServerRail
             groups={groups}
             activeGroupId={activeCommunity?.id ?? null}
@@ -1183,6 +1223,11 @@ export function ChatApp() {
               setActiveCommunity(null);
               setActiveChannel(null);
             }}
+            username={session.username}
+            ownPresence={friends.ownPresence}
+            onPresenceChange={friends.setPresence}
+            presenceDisabled={!isConnected}
+            onOpenSettings={() => setSettingsOpen(true)}
           />
         )}
         <div className="vc-app-shell__main">
@@ -1365,6 +1410,11 @@ export function ChatApp() {
           onServerEvent={(handler) => {
             communityHandlersRef.current.add(handler);
             return () => communityHandlersRef.current.delete(handler);
+          }}
+          onOpenDm={(peerId, peerUsername, initialDraft) => {
+            void openConversation(peerId, peerUsername).then(() => {
+              if (initialDraft) setDraft(initialDraft);
+            });
           }}
         />
       )}

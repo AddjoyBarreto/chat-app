@@ -3,7 +3,7 @@ import type { FriendPick } from "@vaultchat/client";
 import type { GroupInfo } from "@vaultchat/protocol";
 import { FriendMembersInput } from "@vaultchat/chat-react";
 import { useCallback, useEffect, useState } from "react";
-import { createGroupWithKey, loadUserDevice } from "./GroupServerView";
+import { createGroupWithKey, loadUserDevice } from "./groupHelpers";
 
 type GroupsTab = "all" | "create" | "join";
 

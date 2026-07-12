@@ -32,3 +32,5 @@ coverage
 
 # local encrypted media (dev fallback)
 .data/
+
+keys.md

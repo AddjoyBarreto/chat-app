@@ -41,6 +41,7 @@ export {
   addCommunityMember,
   kickCommunityMember,
   promoteCommunityMember,
+  demoteCommunityMember,
 } from "./communities.js";
 export {
   listChannels,
@@ -80,6 +81,7 @@ export {
   getGroupMembers,
   sendGroupMessage,
   getGroupMessages,
+  listSharedGroupMemberIds,
 } from "./groups.js";
 export { toApiError } from "./http.js";
 

@@ -2,6 +2,7 @@ import type { FriendPick } from "@vaultchat/client";
 import {
   addCommunityMember,
   createCommunityInvite,
+  demoteCommunityMember,
   fetchGroupMembers,
   friendlyError,
   kickCommunityMember,
@@ -30,6 +31,7 @@ export function CommunitySettingsModal({
   token,
   userId,
   isAdmin,
+  isOwner = false,
   friends,
   onClose,
   onUpdated,
@@ -45,6 +47,8 @@ export function CommunitySettingsModal({
   token: string;
   userId: string;
   isAdmin: boolean;
+  /** Group creator — can demote other admins. */
+  isOwner?: boolean;
   friends: FriendPick[];
   onClose: () => void;
   onUpdated: (patch: { name?: string; description?: string }) => void;
@@ -187,6 +191,20 @@ export function CommunitySettingsModal({
         prev.map((m) => (m.userId === targetUserId ? { ...m, role: "admin" as const } : m))
       );
       setSuccess("Member promoted to admin");
+      onMembersChanged?.();
+    } catch (e) {
+      setError(friendlyError(e));
+    }
+  }
+
+  async function handleDemote(targetUserId: string, targetUsername: string) {
+    setError(null);
+    try {
+      await demoteCommunityMember(token, communityId, targetUserId);
+      setMembers((prev) =>
+        prev.map((m) => (m.userId === targetUserId ? { ...m, role: "member" as const } : m))
+      );
+      setSuccess(`${targetUsername} is no longer an admin`);
       onMembersChanged?.();
     } catch (e) {
       setError(friendlyError(e));
@@ -336,7 +354,18 @@ export function CommunitySettingsModal({
                       className="vc-server-settings__member-action vc-server-settings__member-action--danger"
                       onClick={() => void handleKick(m.userId, m.username)}
                     >
-                      Remove
+                      Kick
+                    </button>
+                  </div>
+                )}
+                {m.userId !== userId && m.role === "admin" && isOwner && (
+                  <div className="vc-server-settings__member-actions">
+                    <button
+                      type="button"
+                      className="vc-server-settings__member-action vc-server-settings__member-action--danger"
+                      onClick={() => void handleDemote(m.userId, m.username)}
+                    >
+                      Remove admin
                     </button>
                   </div>
                 )}

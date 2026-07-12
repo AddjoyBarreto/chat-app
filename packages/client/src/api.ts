@@ -218,11 +218,36 @@ export async function uploadAccountBackup(
   return parseApiResponse(res);
 }
 
-export async function fetchInbox(token: string): Promise<InboxResponse> {
-  const res = await clientFetch(apiUrl("/api/v1/messages"), {
+export async function fetchInbox(
+  token: string,
+  opts?: import("@vaultchat/protocol").PaginationOptions
+): Promise<InboxResponse> {
+  const params = new URLSearchParams();
+  if (opts?.cursor) params.set("cursor", opts.cursor);
+  if (opts?.limit) params.set("limit", String(opts.limit));
+  const q = params.toString();
+  const res = await clientFetch(apiUrl(`/api/v1/messages${q ? `?${q}` : ""}`), {
     headers: authHeaders(token),
   });
   return parseApiResponse(res);
+}
+
+/** Walk inbox pages newest-first until exhausted or maxPages. */
+export async function forEachInboxPage(
+  token: string,
+  onPage: (messages: import("@vaultchat/protocol").MessageEnvelope[]) => void | Promise<void>,
+  opts?: { pageSize?: number; maxPages?: number }
+): Promise<void> {
+  const pageSize = opts?.pageSize ?? 50;
+  const maxPages = opts?.maxPages ?? 20;
+  let cursor: string | undefined;
+  let pages = 0;
+  do {
+    const page = await fetchInbox(token, { cursor, limit: pageSize });
+    await onPage(page.messages);
+    cursor = page.hasMore ? page.cursor : undefined;
+    pages++;
+  } while (cursor && pages < maxPages);
 }
 
 export async function fetchConversations(token: string): Promise<import("@vaultchat/protocol").ConversationsResponse> {

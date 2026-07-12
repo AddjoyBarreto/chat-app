@@ -123,8 +123,12 @@ export function DiscordLayout({
           groupId={activeGroup.id}
           groupName={activeGroup.name}
           friends={friends}
+          groupKeysVersion={chat.groupKeysVersion}
           onBack={() => setActiveGroup(null)}
           onServerEventRef={groupServerEventRef}
+          onOpenDm={(peerId, peerUsername) => {
+            void chat.openConversation(peerId, peerUsername);
+          }}
         />
       ) : rail === "home" ? (
         <WelcomePanel username={session.username} />

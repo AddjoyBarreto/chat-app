@@ -1,29 +1,42 @@
 "use client";
 
-import type { ChannelCategoryInfo, ChannelInfo, GroupMemberInfo } from "@vaultchat/protocol";
+import type { ChannelCategoryInfo, ChannelInfo, ChannelType, GroupMemberInfo } from "@vaultchat/protocol";
 import type { FriendPick } from "@vaultchat/client";
-import { PresenceDot, MarkdownText, MarkdownComposerField } from "@vaultchat/chat-react";
+import {
+  blockUser,
+  demoteCommunityMember,
+  fetchGroups,
+  kickCommunityMember,
+  presenceLabel,
+  promoteCommunityMember,
+  sendFriendRequest,
+} from "@vaultchat/client";
 import {
   ChannelTypeIcon,
   CreateChannelModal,
   ChannelSettingsModal,
   CommunityChannelSidebar,
   CommunitySettingsModal,
-  IconClose,
   IconInvite,
   IconKey,
+  IconClose,
   IconPlus,
   IconSend,
   IconSettings,
+  MarkdownComposerField,
+  MarkdownText,
+  MemberProfilePopout,
+  PresenceDot,
   type CommunitySettingsTab,
 } from "@vaultchat/chat-react";
-import type { ChannelType } from "@vaultchat/protocol";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
+import { Virtuoso } from "react-virtuoso";
 import {
+  decryptIncomingChannelMessage,
   decryptIncomingGroupMessage,
   getGroupAccess,
-  loadGroupMessages,
-  sendGroupTextMessage,
+  loadCommunityChannelMessages,
+  sendChannelTextMessage,
 } from "@/lib/groups";
 import { friendlyError } from "@/lib/errors";
 
@@ -55,6 +68,7 @@ export function CommunityView({
   resharing,
   onRefreshChannels,
   onServerEvent,
+  onOpenDm,
 }: {
   communityId: string;
   communityName: string;
@@ -74,6 +88,7 @@ export function CommunityView({
   resharing?: boolean;
   onRefreshChannels?: () => Promise<void>;
   onServerEvent?: (handler: (event: import("@vaultchat/protocol").WsServerEvent) => void) => () => void;
+  onOpenDm?: (peerId: string, peerUsername: string, draft?: string) => void;
 }) {
   const [displayName, setDisplayName] = useState(communityName);
   const [displayDescription, setDisplayDescription] = useState(communityDescription);
@@ -82,11 +97,16 @@ export function CommunityView({
   const [activeChannel, setActiveChannel] = useState<ChannelInfo | null>(null);
   const [members, setMembers] = useState<GroupMemberInfo[]>([]);
   const [messages, setMessages] = useState<CommunityMessage[]>([]);
+  const [messageCursor, setMessageCursor] = useState<string | undefined>();
+  const [hasMoreMessages, setHasMoreMessages] = useState(false);
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const [legacyHistory, setLegacyHistory] = useState(false);
   const [draft, setDraft] = useState("");
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [hasGroupKey, setHasGroupKey] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [createdBy, setCreatedBy] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsTab, setSettingsTab] = useState<CommunitySettingsTab>("overview");
   const [createChannel, setCreateChannel] = useState<{
@@ -95,6 +115,20 @@ export function CommunityView({
   } | null>(null);
   const [channelSettings, setChannelSettings] = useState<ChannelInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [profileMember, setProfileMember] = useState<GroupMemberInfo | null>(null);
+  const [profileAnchor, setProfileAnchor] = useState<{ top: number; left: number } | null>(null);
+  const messageIdsRef = useRef(new Set<string>());
+  const activeChannelRef = useRef<ChannelInfo | null>(null);
+  activeChannelRef.current = activeChannel;
+
+  const friendIds = useMemo(() => new Set(friends.map((f) => f.userId)), [friends]);
+  const isOwner = createdBy !== null && createdBy === userId;
+
+  function openMemberProfile(m: GroupMemberInfo, e: MouseEvent) {
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    setProfileAnchor({ top: rect.top, left: rect.left });
+    setProfileMember(m);
+  }
 
   useEffect(() => {
     setLocalCategories(categories);
@@ -119,19 +153,61 @@ export function CommunityView({
     return access;
   }, [token, communityId, userId]);
 
-  const loadMessages = useCallback(async () => {
-    const loaded = await loadGroupMessages(token, communityId, userId);
-    setMessages(
-      loaded.map((m) => ({
+  const loadMessages = useCallback(
+    async (channelId: string) => {
+      const page = await loadCommunityChannelMessages(token, communityId, channelId, userId);
+      const memberMap = new Map(members.map((m) => [m.userId, m.username]));
+      const next: CommunityMessage[] = page.messages.map((m) => ({
         id: m.id,
         from: m.from,
-        username: m.from === "me" ? username : "Member",
+        username:
+          m.from === "me" ? username : (m.senderId && memberMap.get(m.senderId)) || "Member",
         text: m.text,
         time: m.time,
         failed: m.failed,
-      }))
-    );
-  }, [token, communityId, userId, username]);
+      }));
+      messageIdsRef.current = new Set(next.map((m) => m.id));
+      setMessages(next);
+      setMessageCursor(page.cursor);
+      setHasMoreMessages(page.hasMore);
+      setLegacyHistory(Boolean(page.legacy));
+    },
+    [token, communityId, userId, username, members]
+  );
+
+  const loadOlderMessages = useCallback(async () => {
+    const channel = activeChannelRef.current;
+    if (!channel || !messageCursor || loadingOlder || !hasMoreMessages) return;
+    setLoadingOlder(true);
+    try {
+      const page = await loadCommunityChannelMessages(token, communityId, channel.id, userId, {
+        cursor: messageCursor,
+        legacy: legacyHistory,
+      });
+      const older: CommunityMessage[] = [];
+      const memberMap = new Map(members.map((m) => [m.userId, m.username]));
+      for (const m of page.messages) {
+        if (messageIdsRef.current.has(m.id)) continue;
+        messageIdsRef.current.add(m.id);
+        older.push({
+          id: m.id,
+          from: m.from,
+          username:
+            m.from === "me" ? username : (m.senderId && memberMap.get(m.senderId)) || "Member",
+          text: m.text,
+          time: m.time,
+          failed: m.failed,
+        });
+      }
+      setMessages((prev) => [...older, ...prev]);
+      setMessageCursor(page.cursor);
+      setHasMoreMessages(page.hasMore);
+    } catch (e) {
+      setError(friendlyError(e));
+    } finally {
+      setLoadingOlder(false);
+    }
+  }, [token, communityId, userId, username, members, messageCursor, loadingOlder, hasMoreMessages, legacyHistory]);
 
   useEffect(() => {
     let cancelled = false;
@@ -139,10 +215,14 @@ export function CommunityView({
     void (async () => {
       try {
         const { fetchGroupMembers } = await import("@vaultchat/client");
-        const memberList = await fetchGroupMembers(token, communityId);
-        const access = await getGroupAccess(token, communityId, userId);
+        const [memberList, groupList, access] = await Promise.all([
+          fetchGroupMembers(token, communityId),
+          fetchGroups(token),
+          getGroupAccess(token, communityId, userId),
+        ]);
         if (cancelled) return;
         setMembers(memberList);
+        setCreatedBy(groupList.find((g) => g.id === communityId)?.createdBy ?? null);
         setHasGroupKey(access.hasKey);
         setIsAdmin(access.isAdmin);
         const general =
@@ -235,13 +315,14 @@ export function CommunityView({
   useEffect(() => {
     if (groupKeyVersion === undefined || groupKeyVersion === 0) return;
     void refreshAccess().then((access) => {
-      if (access.hasKey) void loadMessages();
+      const channel = activeChannelRef.current;
+      if (access.hasKey && channel?.type === "text") void loadMessages(channel.id);
     });
   }, [groupKeyVersion, refreshAccess, loadMessages]);
 
   useEffect(() => {
     if (!activeChannel || activeChannel.type !== "text" || !hasGroupKey) return;
-    void loadMessages().catch((e) => setError(friendlyError(e)));
+    void loadMessages(activeChannel.id).catch((e) => setError(friendlyError(e)));
   }, [activeChannel, hasGroupKey, loadMessages]);
 
   useEffect(() => {
@@ -258,25 +339,57 @@ export function CommunityView({
         setMembers((prev) => prev.filter((m) => m.userId !== event.userId));
         return;
       }
-      if (event.type !== "group_message" || event.envelope.groupId !== communityId) return;
-      void decryptIncomingGroupMessage(communityId, event.envelope, userId).then((msg) => {
-        const author =
-          members.find((m) => m.userId === event.envelope.senderId)?.username ?? "Member";
-        setMessages((prev) => {
-          if (prev.some((m) => m.id === msg.id)) return prev;
-          return [
-            ...prev,
-            {
-              id: msg.id,
-              from: msg.from,
-              username: msg.from === "me" ? username : author,
-              text: msg.text,
-              time: msg.time,
-              failed: msg.failed,
-            },
-          ];
+      if (
+        event.type === "channel_message" &&
+        activeChannelRef.current?.id === event.envelope.channelId
+      ) {
+        void decryptIncomingChannelMessage(communityId, event.envelope, userId).then((msg) => {
+          const author =
+            members.find((m) => m.userId === event.envelope.senderId)?.username ?? "Member";
+          setMessages((prev) => {
+            if (messageIdsRef.current.has(msg.id) || prev.some((m) => m.id === msg.id)) return prev;
+            messageIdsRef.current.add(msg.id);
+            return [
+              ...prev,
+              {
+                id: msg.id,
+                from: msg.from,
+                username: msg.from === "me" ? username : author,
+                text: msg.text,
+                time: msg.time,
+                failed: msg.failed,
+              },
+            ];
+          });
         });
-      });
+        return;
+      }
+      // Legacy community-wide group messages (pre-channel storage)
+      if (
+        event.type === "group_message" &&
+        event.envelope.groupId === communityId &&
+        activeChannelRef.current?.name === "general"
+      ) {
+        void decryptIncomingGroupMessage(communityId, event.envelope, userId).then((msg) => {
+          const author =
+            members.find((m) => m.userId === event.envelope.senderId)?.username ?? "Member";
+          setMessages((prev) => {
+            if (messageIdsRef.current.has(msg.id) || prev.some((m) => m.id === msg.id)) return prev;
+            messageIdsRef.current.add(msg.id);
+            return [
+              ...prev,
+              {
+                id: msg.id,
+                from: msg.from,
+                username: msg.from === "me" ? username : author,
+                text: msg.text,
+                time: msg.time,
+                failed: msg.failed,
+              },
+            ];
+          });
+        });
+      }
     });
   }, [onServerEvent, communityId, userId, username, members]);
 
@@ -291,12 +404,33 @@ export function CommunityView({
 
   async function handleSend() {
     if (!draft.trim() || !hasGroupKey || activeChannel?.type !== "text") return;
+    const text = draft.trim();
+    const channelId = activeChannel.id;
     setSending(true);
+    setDraft("");
+    const optimisticId = crypto.randomUUID();
+    const optimistic: CommunityMessage = {
+      id: optimisticId,
+      from: "me",
+      username,
+      text,
+      time: new Date().toISOString(),
+    };
+    messageIdsRef.current.add(optimisticId);
+    setMessages((prev) => [...prev, optimistic]);
     try {
-      await sendGroupTextMessage(token, userId, communityId, draft.trim());
-      setDraft("");
-      await loadMessages();
+      const result = await sendChannelTextMessage(token, userId, communityId, channelId, text);
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === optimisticId ? { ...m, id: result.messageId, time: result.createdAt } : m
+        )
+      );
+      messageIdsRef.current.delete(optimisticId);
+      messageIdsRef.current.add(result.messageId);
     } catch (e) {
+      messageIdsRef.current.delete(optimisticId);
+      setMessages((prev) => prev.filter((m) => m.id !== optimisticId));
+      setDraft(text);
       setError(friendlyError(e));
     } finally {
       setSending(false);
@@ -435,26 +569,40 @@ export function CommunityView({
                   <p>This is the start of the channel. Messages are encrypted for all members.</p>
                 </div>
               ) : (
-                messages.map((m) => (
-                  <div
-                    key={m.id}
-                    className={`vc-community-msg${m.from === "me" ? " vc-community-msg--me" : ""}${m.failed ? " vc-community-msg--failed" : ""}`}
-                  >
-                    <div className="vc-community-msg__avatar">{m.username[0]?.toUpperCase()}</div>
-                    <div className="vc-community-msg__body">
-                      <div className="vc-community-msg__meta">
-                        <strong>{m.username}</strong>
-                        <time>
-                          {new Date(m.time).toLocaleTimeString([], {
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })}
-                        </time>
+                <Virtuoso
+                  style={{ height: "100%" }}
+                  data={messages}
+                  initialTopMostItemIndex={messages.length - 1}
+                  followOutput="smooth"
+                  atTopStateChange={(atTop) => {
+                    if (atTop && hasMoreMessages && !loadingOlder) void loadOlderMessages();
+                  }}
+                  components={{
+                    Header: () =>
+                      loadingOlder ? (
+                        <div className="vc-community-messages__older">Loading older messages…</div>
+                      ) : null,
+                  }}
+                  itemContent={(_i, m) => (
+                    <div
+                      className={`vc-community-msg${m.from === "me" ? " vc-community-msg--me" : ""}${m.failed ? " vc-community-msg--failed" : ""}`}
+                    >
+                      <div className="vc-community-msg__avatar">{m.username[0]?.toUpperCase()}</div>
+                      <div className="vc-community-msg__body">
+                        <div className="vc-community-msg__meta">
+                          <strong>{m.username}</strong>
+                          <time>
+                            {new Date(m.time).toLocaleTimeString([], {
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
+                          </time>
+                        </div>
+                        <MarkdownText text={m.text} className="vc-bubble__text" />
                       </div>
-                      <MarkdownText text={m.text} className="vc-bubble__text" />
                     </div>
-                  </div>
-                ))
+                  )}
+                />
               )}
             </div>
 
@@ -536,30 +684,127 @@ export function CommunityView({
           <section>
             <h4>Online — {activeMembers.length}</h4>
             <ul>
-              {activeMembers.map((m) => (
-                <li key={m.userId}>
-                  <span className="vc-community-members__avatar">{m.username[0]}</span>
-                  <span>{m.username}</span>
-                  {m.role === "admin" && <span className="vc-community-members__badge">Admin</span>}
-                  <PresenceDot status={getPresence(m.userId)} />
-                </li>
-              ))}
+              {activeMembers.map((m) => {
+                const status = getPresence(m.userId);
+                return (
+                  <li key={m.userId}>
+                    <button
+                      type="button"
+                      className={`vc-community-members__row${profileMember?.userId === m.userId ? " vc-community-members__row--active" : ""}`}
+                      onClick={(e) => openMemberProfile(m, e)}
+                    >
+                      <span className="vc-community-members__avatar">{m.username[0]}</span>
+                      <span className="vc-community-members__name">{m.username}</span>
+                      {m.role === "admin" && <span className="vc-community-members__badge">Admin</span>}
+                      <PresenceDot status={status} />
+                      <span className="vc-community-members__status">{presenceLabel(status)}</span>
+                    </button>
+                  </li>
+                );
+              })}
             </ul>
           </section>
         )}
         <section>
           <h4>Offline — {offlineMembers.length}</h4>
           <ul>
-            {offlineMembers.map((m) => (
-              <li key={m.userId} className="vc-community-members__offline">
-                <span className="vc-community-members__avatar">{m.username[0]}</span>
-                <span>{m.username}</span>
-                {m.role === "admin" && <span className="vc-community-members__badge">Admin</span>}
-              </li>
-            ))}
+            {offlineMembers.map((m) => {
+              const status = getPresence(m.userId);
+              return (
+                <li key={m.userId} className="vc-community-members__offline">
+                  <button
+                    type="button"
+                    className={`vc-community-members__row${profileMember?.userId === m.userId ? " vc-community-members__row--active" : ""}`}
+                    onClick={(e) => openMemberProfile(m, e)}
+                  >
+                    <span className="vc-community-members__avatar">{m.username[0]}</span>
+                    <span className="vc-community-members__name">{m.username}</span>
+                    {m.role === "admin" && <span className="vc-community-members__badge">Admin</span>}
+                    <PresenceDot status={status} />
+                    <span className="vc-community-members__status">{presenceLabel(status)}</span>
+                  </button>
+                </li>
+              );
+            })}
           </ul>
         </section>
       </aside>
+
+      {profileMember && (
+        <MemberProfilePopout
+          member={profileMember}
+          status={getPresence(profileMember.userId)}
+          isSelf={profileMember.userId === userId}
+          isViewerAdmin={isAdmin}
+          isFriend={friendIds.has(profileMember.userId)}
+          anchor={profileAnchor}
+          onClose={() => {
+            setProfileMember(null);
+            setProfileAnchor(null);
+          }}
+          onMessage={(peerId, peerUsername, draft) => {
+            onOpenDm?.(peerId, peerUsername, draft);
+          }}
+          onAddFriend={
+            friendIds.has(profileMember.userId)
+              ? undefined
+              : async () => {
+                  await sendFriendRequest(token, profileMember.username);
+                }
+          }
+          onBlock={async () => {
+            if (!window.confirm(`Block @${profileMember.username}?`)) return;
+            await blockUser(token, profileMember.username);
+            setProfileMember(null);
+          }}
+          onKick={
+            isAdmin && profileMember.role !== "admin"
+              ? async () => {
+                  if (!window.confirm(`Remove ${profileMember.username} from this server?`)) return;
+                  await kickCommunityMember(token, communityId, profileMember.userId);
+                  setMembers((prev) => prev.filter((x) => x.userId !== profileMember.userId));
+                  setProfileMember(null);
+                }
+              : undefined
+          }
+          onPromote={
+            isAdmin && profileMember.role !== "admin"
+              ? async () => {
+                  await promoteCommunityMember(token, communityId, profileMember.userId);
+                  setMembers((prev) =>
+                    prev.map((x) =>
+                      x.userId === profileMember.userId ? { ...x, role: "admin" as const } : x
+                    )
+                  );
+                }
+              : undefined
+          }
+          onDemote={
+            isOwner &&
+            profileMember.role === "admin" &&
+            profileMember.userId !== createdBy
+              ? async () => {
+                  await demoteCommunityMember(token, communityId, profileMember.userId);
+                  setMembers((prev) =>
+                    prev.map((x) =>
+                      x.userId === profileMember.userId ? { ...x, role: "member" as const } : x
+                    )
+                  );
+                  setProfileMember((prev) =>
+                    prev ? { ...prev, role: "member" as const } : prev
+                  );
+                }
+              : undefined
+          }
+          onShareKey={
+            isAdmin
+              ? async () => {
+                  await onShareKeyWithMember(profileMember.userId);
+                }
+              : undefined
+          }
+        />
+      )}
 
       {settingsOpen && (
         <CommunitySettingsModal
@@ -569,6 +814,7 @@ export function CommunityView({
           token={token}
           userId={userId}
           isAdmin={isAdmin}
+          isOwner={isOwner}
           friends={friends}
           resharing={resharing}
           initialTab={settingsTab}

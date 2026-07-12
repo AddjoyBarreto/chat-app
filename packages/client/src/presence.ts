@@ -58,3 +58,8 @@ export function presenceColor(status: PresenceStatus): string {
       return "#80848e";
   }
 }
+
+/** What others (and member lists) should see for a chosen status. */
+export function publicPresenceStatus(status: PresenceStatus): PresenceStatus {
+  return status === "invisible" ? "offline" : status;
+}

@@ -1,6 +1,7 @@
 import {
   isConnectedPresence,
   listFriendIds,
+  listSharedGroupMemberIds,
   presenceRedisKey,
   PRESENCE_TTL_SEC,
   publicPresenceStatus,
@@ -31,22 +32,32 @@ async function savePresence(redis: Redis, userId: string, status: PresenceStatus
   await redis.set(presenceRedisKey(userId), status, "EX", PRESENCE_TTL_SEC);
 }
 
-async function buildFriendPresenceSnapshot(
-  redis: Redis,
-  clientsByUser: ClientsByUser,
-  friendIds: string[]
-): Promise<FriendPresence[]> {
-  const friends: FriendPresence[] = [];
-  for (const friendId of friendIds) {
-    if (!isUserOnline(clientsByUser, friendId)) continue;
-    const stored = await loadPresence(redis, friendId);
-    const status = stored === "offline" ? "online" : publicPresenceStatus(stored);
-    friends.push({ userId: friendId, status });
-  }
-  return friends;
+/** Friends + shared group/community members — everyone who should see your status. */
+async function listPresencePeerIds(ctx: ApiContext, userId: string): Promise<string[]> {
+  const [friendIds, groupPeerIds] = await Promise.all([
+    listFriendIds(ctx, userId),
+    listSharedGroupMemberIds(ctx, userId),
+  ]);
+  return [...new Set([...friendIds, ...groupPeerIds])];
 }
 
-async function notifyFriendsOfPresence(
+async function buildPresenceSnapshot(
+  redis: Redis,
+  clientsByUser: ClientsByUser,
+  peerIds: string[]
+): Promise<FriendPresence[]> {
+  const peers: FriendPresence[] = [];
+  for (const peerId of peerIds) {
+    if (!isUserOnline(clientsByUser, peerId)) continue;
+    const stored = await loadPresence(redis, peerId);
+    const status = stored === "offline" ? "online" : publicPresenceStatus(stored);
+    if (status === "offline") continue;
+    peers.push({ userId: peerId, status });
+  }
+  return peers;
+}
+
+async function notifyPeersOfPresence(
   ctx: ApiContext,
   redis: Redis,
   userId: string,
@@ -55,15 +66,15 @@ async function notifyFriendsOfPresence(
 ): Promise<void> {
   const stored = await loadPresence(redis, userId);
   const status = publicPresenceStatus(stored === "offline" ? "online" : stored);
-  const friendIds = await listFriendIds(ctx, userId);
-  for (const friendId of friendIds) {
-    if (isUserOnline(clientsByUser, friendId)) {
-      sendToUser(friendId, { type: "presence_update", userId, status });
+  const peerIds = await listPresencePeerIds(ctx, userId);
+  for (const peerId of peerIds) {
+    if (isUserOnline(clientsByUser, peerId)) {
+      sendToUser(peerId, { type: "presence_update", userId, status });
     }
   }
 }
 
-/** Notify friends and send an initial snapshot to the connecting socket. */
+/** Notify peers and send an initial snapshot to the connecting socket. */
 export async function handleUserConnected(
   ctx: ApiContext,
   redis: Redis,
@@ -76,8 +87,8 @@ export async function handleUserConnected(
   const set = clientsByUser.get(userId);
   if (!set) return;
 
-  const friendIds = await listFriendIds(ctx, userId);
-  const snapshot = await buildFriendPresenceSnapshot(redis, clientsByUser, friendIds);
+  const peerIds = await listPresencePeerIds(ctx, userId);
+  const snapshot = await buildPresenceSnapshot(redis, clientsByUser, peerIds);
   send(ws, { type: "presence_snapshot", friends: snapshot });
 
   if (set.size !== 1) return;
@@ -85,10 +96,10 @@ export async function handleUserConnected(
   let status = await loadPresence(redis, userId);
   if (!isConnectedPresence(status)) status = "online";
   await savePresence(redis, userId, status);
-  await notifyFriendsOfPresence(ctx, redis, userId, clientsByUser, sendToUser);
+  await notifyPeersOfPresence(ctx, redis, userId, clientsByUser, sendToUser);
 }
 
-/** Notify friends when the user's last socket disconnects. */
+/** Notify peers when the user's last socket disconnects. */
 export async function handleUserDisconnected(
   ctx: ApiContext,
   redis: Redis,
@@ -100,9 +111,9 @@ export async function handleUserDisconnected(
 
   await savePresence(redis, userId, "offline");
 
-  const friendIds = await listFriendIds(ctx, userId);
-  for (const friendId of friendIds) {
-    sendToUser(friendId, { type: "presence_update", userId, status: "offline" });
+  const peerIds = await listPresencePeerIds(ctx, userId);
+  for (const peerId of peerIds) {
+    sendToUser(peerId, { type: "presence_update", userId, status: "offline" });
   }
 }
 
@@ -117,5 +128,5 @@ export async function handlePresenceSet(
   if (!isUserOnline(clientsByUser, userId)) return;
 
   await savePresence(redis, userId, status);
-  await notifyFriendsOfPresence(ctx, redis, userId, clientsByUser, sendToUser);
+  await notifyPeersOfPresence(ctx, redis, userId, clientsByUser, sendToUser);
 }

@@ -179,3 +179,43 @@ export async function promoteCommunityMember(
 
   return { ok: true };
 }
+
+export async function demoteCommunityMember(
+  ctx: ApiContext,
+  actorId: string,
+  communityId: string,
+  targetUserId: string
+): Promise<{ ok: true }> {
+  const [group] = await ctx.db
+    .select({ createdBy: groups.createdBy })
+    .from(groups)
+    .where(eq(groups.id, communityId))
+    .limit(1);
+  if (!group) throw new ApiCoreError("Community not found", 404, "NOT_FOUND");
+  if (group.createdBy !== actorId) {
+    throw new ApiCoreError("Only the group creator can remove admin", 403, "NOT_OWNER");
+  }
+  if (actorId === targetUserId) {
+    throw new ApiCoreError("Cannot remove your own admin role", 400, "INVALID_TARGET");
+  }
+  if (targetUserId === group.createdBy) {
+    throw new ApiCoreError("Cannot remove the group creator's admin role", 403, "NOT_ALLOWED");
+  }
+
+  const [target] = await ctx.db
+    .select({ role: groupMembers.role })
+    .from(groupMembers)
+    .where(and(eq(groupMembers.groupId, communityId), eq(groupMembers.userId, targetUserId)))
+    .limit(1);
+  if (!target) throw new ApiCoreError("Member not found", 404, "NOT_FOUND");
+  if (target.role !== "admin") {
+    throw new ApiCoreError("User is not an admin", 400, "INVALID_TARGET");
+  }
+
+  await ctx.db
+    .update(groupMembers)
+    .set({ role: "member" })
+    .where(and(eq(groupMembers.groupId, communityId), eq(groupMembers.userId, targetUserId)));
+
+  return { ok: true };
+}

@@ -189,6 +189,27 @@ export async function sendGroupMessage(
   return { messageId: row.id, createdAt: row.createdAt.toISOString() };
 }
 
+/** Distinct user IDs that share at least one group/community with `userId` (excludes self). */
+export async function listSharedGroupMemberIds(
+  ctx: ApiContext,
+  userId: string
+): Promise<string[]> {
+  const myGroups = await ctx.db
+    .select({ groupId: groupMembers.groupId })
+    .from(groupMembers)
+    .where(eq(groupMembers.userId, userId));
+
+  if (myGroups.length === 0) return [];
+
+  const groupIds = myGroups.map((g) => g.groupId);
+  const peers = await ctx.db
+    .selectDistinct({ userId: groupMembers.userId })
+    .from(groupMembers)
+    .where(inArray(groupMembers.groupId, groupIds));
+
+  return peers.map((p) => p.userId).filter((id) => id !== userId);
+}
+
 export async function getGroupMessages(
   ctx: ApiContext,
   userId: string,

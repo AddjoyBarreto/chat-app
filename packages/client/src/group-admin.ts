@@ -1,10 +1,40 @@
 import { serializeMessageContent, type VaultDevice } from "@vaultchat/crypto";
 import type { MessageContent, MessageType } from "@vaultchat/protocol";
-import { fetchPreKeyBundle, sendEncryptedMessage } from "./api.js";
-import { getStoredGroupKey, loadGroupCipher } from "./group-keys.js";
+import {
+  fetchOwnDeviceBundles,
+  fetchPreKeyBundle,
+  sendEncryptedMessage,
+} from "./api.js";
+import { getStoredGroupKey, loadGroupCipher, saveGroupKey } from "./group-keys.js";
 import { fetchGroupMembers, sendGroupMessage } from "./groups.js";
 import { validateMessageContent } from "./messages.js";
 import type { StorageAdapter } from "./storage.js";
+
+/**
+ * Push a community AES key to this user's other linked devices (self-DM).
+ * Required because web/desktop/mobile do not share localStorage.
+ */
+export async function syncGroupKeyToOwnDevices(
+  token: string,
+  device: VaultDevice,
+  userId: string,
+  groupId: string,
+  keyBase64: string
+): Promise<number> {
+  const ownBundles = await fetchOwnDeviceBundles(token, userId);
+  let sent = 0;
+  for (const { deviceId, bundle } of ownBundles) {
+    if (deviceId === device.deviceId) continue;
+    const plaintext = serializeMessageContent({
+      type: "group_key",
+      groupKey: { groupId, key: keyBase64 },
+    });
+    const encrypted = await device.encrypt(userId, deviceId, plaintext, bundle);
+    await sendEncryptedMessage(token, userId, encrypted, "text", undefined, deviceId);
+    sent++;
+  }
+  return sent;
+}
 
 export async function distributeGroupKey(
   storage: StorageAdapter,
@@ -14,11 +44,13 @@ export async function distributeGroupKey(
   groupId: string,
   keyBase64: string
 ): Promise<void> {
+  await saveGroupKey(storage, userId, groupId, keyBase64);
   const members = await fetchGroupMembers(token, groupId);
   for (const member of members) {
     if (member.userId === userId) continue;
     await distributeGroupKeyToMember(storage, token, device, userId, groupId, keyBase64, member.userId);
   }
+  await syncGroupKeyToOwnDevices(token, device, userId, groupId, keyBase64);
 }
 
 export async function distributeGroupKeyToMember(
@@ -30,7 +62,10 @@ export async function distributeGroupKeyToMember(
   keyBase64: string,
   targetUserId: string
 ): Promise<void> {
-  if (targetUserId === userId) return;
+  if (targetUserId === userId) {
+    await syncGroupKeyToOwnDevices(token, device, userId, groupId, keyBase64);
+    return;
+  }
   const bundle = await fetchPreKeyBundle(targetUserId);
   const plaintext = serializeMessageContent({
     type: "group_key",
@@ -73,6 +108,23 @@ export async function reshareGroupKey(
 
   await distributeGroupKey(storage, token, device, userId, groupId, keyBase64);
   return { sharedWith: members.filter((m) => m.userId !== userId).length };
+}
+
+/** Push local community keys to other devices for this account (no-op if alone). */
+export async function syncAllGroupKeysToOwnDevices(
+  storage: StorageAdapter,
+  token: string,
+  device: VaultDevice,
+  userId: string,
+  groupIds: string[]
+): Promise<number> {
+  let total = 0;
+  for (const groupId of groupIds) {
+    const key = await getStoredGroupKey(storage, userId, groupId);
+    if (!key) continue;
+    total += await syncGroupKeyToOwnDevices(token, device, userId, groupId, key);
+  }
+  return total;
 }
 
 export async function sendGroupContentMessage(

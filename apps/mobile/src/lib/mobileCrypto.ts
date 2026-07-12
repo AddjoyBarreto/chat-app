@@ -17,9 +17,9 @@ export async function verifyMobileCrypto(): Promise<void> {
   const { crypto: signalCrypto } = require("@privacyresearch/libsignal-protocol-typescript/lib/internal/crypto.js");
 
   const key = new Uint8Array(32);
-  global.crypto.getRandomValues(key);
+  globalThis.crypto.getRandomValues(key);
   const iv = new Uint8Array(16);
-  global.crypto.getRandomValues(iv);
+  globalThis.crypto.getRandomValues(iv);
   const plain = new TextEncoder().encode(CRYPTO_CHECK);
 
   const encrypted = await signalCrypto.encrypt(key, plain, iv);

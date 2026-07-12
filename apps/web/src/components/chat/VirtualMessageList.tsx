@@ -1,7 +1,7 @@
 "use client";
 
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { MessageBubble } from "./MessageBubble";
 import type { DisplayMessage } from "@/lib/messages";
 import { groupByDate } from "@/lib/messages";
@@ -18,6 +18,8 @@ interface VirtualMessageListProps {
   hasMore?: boolean;
 }
 
+const START_INDEX = 100_000;
+
 export function VirtualMessageList({
   messages,
   authToken,
@@ -26,7 +28,9 @@ export function VirtualMessageList({
   hasMore,
 }: VirtualMessageListProps) {
   const virtuosoRef = useRef<VirtuosoHandle>(null);
-  const prevLen = useRef(messages.length);
+  const [firstItemIndex, setFirstItemIndex] = useState(START_INDEX);
+  const prevFirstIdRef = useRef<string | undefined>(undefined);
+  const prevLenRef = useRef(0);
 
   const items = useMemo<ListItem[]>(() => {
     const groups = groupByDate(messages);
@@ -41,11 +45,27 @@ export function VirtualMessageList({
   }, [messages]);
 
   useEffect(() => {
-    if (messages.length > prevLen.current) {
-      virtuosoRef.current?.scrollToIndex({ index: items.length - 1, behavior: "smooth" });
+    const firstId = messages[0]?.id;
+    const len = messages.length;
+
+    if (len === 0) {
+      setFirstItemIndex(START_INDEX);
+      prevFirstIdRef.current = undefined;
+      prevLenRef.current = 0;
+      return;
     }
-    prevLen.current = messages.length;
-  }, [messages.length, items.length]);
+
+    if (prevLenRef.current === 0) {
+      // Fresh conversation load — stay pinned to bottom via followOutput.
+      setFirstItemIndex(START_INDEX);
+    } else if (len > prevLenRef.current && firstId && firstId !== prevFirstIdRef.current) {
+      // Older messages prepended — shift index so scroll position stays stable.
+      setFirstItemIndex((idx) => idx - (len - prevLenRef.current));
+    }
+
+    prevFirstIdRef.current = firstId;
+    prevLenRef.current = len;
+  }, [messages]);
 
   if (items.length === 0) {
     return (
@@ -64,6 +84,8 @@ export function VirtualMessageList({
       className="vc-messages__virtuoso"
       style={{ flex: 1, minHeight: 0 }}
       data={items}
+      firstItemIndex={firstItemIndex}
+      initialTopMostItemIndex={items.length - 1}
       followOutput="smooth"
       atTopStateChange={(atTop) => {
         if (atTop && hasMore && onLoadOlder && !loadingOlder) onLoadOlder();
@@ -76,8 +98,9 @@ export function VirtualMessageList({
             </div>
           );
         }
-        const prev = items[index - 1];
-        const next = items[index + 1];
+        const localIndex = index - firstItemIndex;
+        const prev = items[localIndex - 1];
+        const next = items[localIndex + 1];
         const groupedWithPrev =
           prev?.kind === "message" && prev.message.from === item.message.from;
         const groupedWithNext =

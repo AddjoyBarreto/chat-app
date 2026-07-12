@@ -1,22 +1,31 @@
 "use client";
 
-import type { GroupInfo } from "@vaultchat/protocol";
+import type { GroupInfo, SettablePresenceStatus } from "@vaultchat/protocol";
+import { WebUserRailPanel } from "./WebUserRailPanel";
 
 export function WebServerRail({
   groups,
   activeGroupId,
   onSelectGroup,
   onGoHome,
+  username,
+  ownPresence,
+  onPresenceChange,
+  presenceDisabled,
+  onOpenSettings,
 }: {
   groups: GroupInfo[];
   activeGroupId: string | null;
   onSelectGroup: (id: string, name: string) => void;
   onGoHome: () => void;
+  username: string;
+  ownPresence: SettablePresenceStatus;
+  onPresenceChange: (status: SettablePresenceStatus) => void;
+  presenceDisabled?: boolean;
+  onOpenSettings: () => void;
 }) {
-  if (groups.length === 0) return null;
-
   return (
-    <nav className="vc-server-rail" aria-label="Communities">
+    <nav className="vc-server-rail" aria-label="App navigation">
       <button
         type="button"
         className={`vc-server-rail__btn${!activeGroupId ? " vc-server-rail__btn--active" : ""}`}
@@ -26,18 +35,38 @@ export function WebServerRail({
       >
         <HomeIcon />
       </button>
-      <div className="vc-server-rail__divider" aria-hidden />
-      {groups.map((g) => (
-        <button
-          key={g.id}
-          type="button"
-          className={`vc-server-rail__group${activeGroupId === g.id ? " vc-server-rail__group--active" : ""}`}
-          title={g.name}
-          onClick={() => onSelectGroup(g.id, g.name)}
-        >
-          {g.name[0]?.toUpperCase()}
-        </button>
-      ))}
+
+      {groups.length > 0 && (
+        <>
+          <div className="vc-server-rail__divider" aria-hidden />
+          <div className="vc-server-rail__groups">
+            {groups.map((g) => (
+              <button
+                key={g.id}
+                type="button"
+                className={`vc-server-rail__group${activeGroupId === g.id ? " vc-server-rail__group--active" : ""}`}
+                title={g.name}
+                aria-label={g.name}
+                onClick={() => onSelectGroup(g.id, g.name)}
+              >
+                {g.name[0]?.toUpperCase()}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+
+      <div className="vc-server-rail__spacer" />
+
+      <div className="vc-server-rail__footer">
+        <WebUserRailPanel
+          username={username}
+          presence={ownPresence}
+          onPresenceChange={onPresenceChange}
+          onOpenSettings={onOpenSettings}
+          disabled={presenceDisabled}
+        />
+      </div>
     </nav>
   );
 }

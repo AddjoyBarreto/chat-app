@@ -8,7 +8,7 @@ import {
   encryptOutgoingMessage,
   fetchConversation,
   fetchConversations,
-  fetchInbox,
+  forEachInboxPage,
   fetchMe,
   fetchOwnDeviceBundles,
   fetchPreKeyBundle,
@@ -97,9 +97,11 @@ export function useVaultChat(options: UseVaultChatOptions = {}) {
   const [loading, setLoading] = useState(false);
   const [sending, setSending] = useState(false);
   const [initError, setInitError] = useState<string | null>(null);
+  const [groupKeysVersion, setGroupKeysVersion] = useState(0);
 
   const deviceRef = useRef<VaultDevice | null>(null);
   const messageIdsRef = useRef(new Set<string>());
+  const openGenerationRef = useRef(0);
   const inboxRef = useRef(new MessageInbox());
   const readStateRef = useRef<ReadStateManager | null>(null);
   const conversationsRef = useRef(conversations);
@@ -146,7 +148,10 @@ export function useVaultChat(options: UseVaultChatOptions = {}) {
   }, []);
 
   const handleIncoming = useCallback(
-    async (envelope: import("@vaultchat/protocol").MessageEnvelope) => {
+    async (
+      envelope: import("@vaultchat/protocol").MessageEnvelope,
+      opts?: { inboxCatchUp?: boolean; appliedGroupKeys?: Set<string> }
+    ) => {
       const device = deviceRef.current;
       const sess = sessionRef.current;
       const readState = readStateRef.current;
@@ -171,8 +176,27 @@ export function useVaultChat(options: UseVaultChatOptions = {}) {
 
         setPreviews((p) => ({ ...p, [peerId]: previewText(display) }));
 
-        const viewingPeer =
-          peerRef.current?.id === peerId;
+        if (display.content.type === "group_key" && display.content.groupKey) {
+          const gid = display.content.groupKey.groupId;
+          if (opts?.inboxCatchUp && opts.appliedGroupKeys?.has(gid)) {
+            return;
+          }
+          const { captureGroupKeyFromContent } = await import("@vaultchat/client");
+          const saved = await captureGroupKeyFromContent(
+            storage,
+            sess.userId,
+            display.content,
+            { replaceExisting: true }
+          );
+          opts?.appliedGroupKeys?.add(gid);
+          if (saved) setGroupKeysVersion((v) => v + 1);
+          return;
+        }
+
+        // Don't treat note-to-self key sync as a normal conversation bump for "me"
+        if (peerId === sess.userId) return;
+
+        const viewingPeer = peerRef.current?.id === peerId;
 
         if (viewingPeer) {
           addMessage(display);
@@ -209,16 +233,27 @@ export function useVaultChat(options: UseVaultChatOptions = {}) {
           const readState = readStateRef.current;
           if (!sess || !readState) return;
           try {
-            const { messages: inbox } = await fetchInbox(sess.token);
-            for (const envelope of inbox) {
-              if (inboxRef.current.hasProcessed(envelope.id)) continue;
-              const peerId = inboxRef.current.peerIdForEnvelope(envelope, sess.userId);
-              if (readState.isPeerMessageRead(peerId, envelope.createdAt)) {
-                inboxRef.current.markProcessed(envelope.id);
-                continue;
+            const appliedGroupKeys = new Set<string>();
+            await forEachInboxPage(sess.token, async (inbox) => {
+              for (const envelope of inbox) {
+                if (inboxRef.current.hasProcessed(envelope.id)) continue;
+                const peerId = inboxRef.current.peerIdForEnvelope(envelope, sess.userId);
+                // Still process note-to-self (multi-device key sync) even if "read".
+                if (
+                  peerId !== sess.userId &&
+                  readState.isPeerMessageRead(peerId, envelope.createdAt)
+                ) {
+                  inboxRef.current.markProcessed(envelope.id);
+                  continue;
+                }
+                // Newest-first: apply at most one group_key per community so older
+                // shares cannot overwrite a newer key from an earlier page.
+                await handleIncoming(envelope, {
+                  inboxCatchUp: true,
+                  appliedGroupKeys,
+                });
               }
-              await handleIncoming(envelope);
-            }
+            });
           } catch {
             // non-fatal
           }
@@ -397,6 +432,8 @@ export function useVaultChat(options: UseVaultChatOptions = {}) {
     const readState = readStateRef.current;
     if (!sess || !readState) return;
 
+    const generation = ++openGenerationRef.current;
+
     const conv = conversations.find((c) => c.peerId === peerId);
     if (conv) readState.markPeerRead(peerId, conv.lastMessageAt);
 
@@ -418,6 +455,8 @@ export function useVaultChat(options: UseVaultChatOptions = {}) {
         peerId,
         { limit: 50 }
       );
+      if (generation !== openGenerationRef.current) return;
+
       const device = deviceRef.current!;
       const decrypted: DisplayMessage[] = [];
 
@@ -433,6 +472,8 @@ export function useVaultChat(options: UseVaultChatOptions = {}) {
         messageIdsRef.current.add(display.id);
       }
 
+      if (generation !== openGenerationRef.current) return;
+
       setMessages(sortMessages(decrypted));
       setMessageCursor(cursor);
       setHasMoreMessages(Boolean(hasMore));
@@ -443,10 +484,11 @@ export function useVaultChat(options: UseVaultChatOptions = {}) {
         readState.markPeerRead(peerId, last.time);
       }
     } catch (e) {
+      if (generation !== openGenerationRef.current) return;
       toast(String(e), "error");
       setPeer(null);
     } finally {
-      setLoading(false);
+      if (generation === openGenerationRef.current) setLoading(false);
     }
   }
 
@@ -615,6 +657,7 @@ export function useVaultChat(options: UseVaultChatOptions = {}) {
     isConnected,
     hasMoreMessages,
     loadingOlder,
+    groupKeysVersion,
     login,
     logout,
     register,

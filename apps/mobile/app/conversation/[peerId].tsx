@@ -11,9 +11,11 @@ import {
   formatMessageDate,
   friendlyError,
   historyDecryptOptions,
+  mergeConversationTimeline,
   persistDevice,
   sendEncryptedMessage,
   sortMessages,
+  syncConversationWithCache,
   type DisplayMessage,
 } from "@vaultchat/client";
 import type { MessageEnvelope } from "@vaultchat/protocol";
@@ -96,7 +98,10 @@ export default function ConversationScreen() {
     if (messageIds.current.has(msg.id)) return;
     messageIds.current.add(msg.id);
     setMessages((prev) => sortMessages(dedupeMessages([...prev, msg])));
-  }, []);
+    if (session?.userId && peerId) {
+      void mergeConversationTimeline(storage, session.userId, peerId, [msg]);
+    }
+  }, [session?.userId, peerId]);
 
   const handleIncoming = useCallback(
     (display: DisplayMessage, envelope: MessageEnvelope) => {
@@ -131,34 +136,35 @@ export default function ConversationScreen() {
   useEffect(() => {
     if (!session || !device || !peerId) return;
     let cancelled = false;
+    const isCurrent = () => !cancelled;
     void (async () => {
       setLoading(true);
       setMessages([]);
       messageIds.current.clear();
       try {
-        const { messages: envelopes, cursor, hasMore: more } = await fetchConversation(
-          session.token,
+        const { messages: synced, cursor, hasMore: more } = await syncConversationWithCache({
+          storage,
+          device,
+          token: session.token,
+          userId: session.userId,
+          deviceId: session.deviceId,
           peerId,
-          { limit: 50 }
-        );
-        if (cancelled) return;
-        const decrypted: DisplayMessage[] = [];
-        for (const envelope of envelopes) {
-          const display = await decryptEnvelope(
-            device,
-            envelope,
-            session.userId,
-            historyDecryptOptions(storage, session.userId, envelope, session.userId, session.deviceId)
-          );
-          messageIds.current.add(display.id);
-          decrypted.push(display);
-        }
+          limit: 50,
+          isCurrent,
+          onHydrated: (cached) => {
+            if (cancelled) return;
+            for (const m of cached) messageIds.current.add(m.id);
+            setMessages(cached);
+            setLoading(false);
+          },
+        });
         if (cancelled) return;
         await persistDevice(storage, device, session.userId);
-        setMessages(sortMessages(decrypted));
+        for (const m of synced) messageIds.current.add(m.id);
+        setMessages(synced);
         setMessageCursor(cursor);
         setHasMore(Boolean(more));
-        const last = decrypted[decrypted.length - 1];
+        const last = synced[synced.length - 1];
         if (last) markConversationRead(peerId, last.time);
       } catch (e) {
         if (!cancelled) Alert.alert("Error", friendlyError(e));
@@ -169,7 +175,7 @@ export default function ConversationScreen() {
     return () => {
       cancelled = true;
     };
-  }, [session, device, peerId]);
+  }, [session, device, peerId, markConversationRead]);
 
   async function loadOlder() {
     if (!session || !device || !peerId || !messageCursor || loadingOlder || !hasMore) return;
@@ -192,7 +198,11 @@ export default function ConversationScreen() {
         messageIds.current.add(display.id);
         older.push(display);
       }
-      setMessages((prev) => sortMessages(dedupeMessages([...older, ...prev])));
+      setMessages((prev) => {
+        const merged = sortMessages(dedupeMessages([...older, ...prev]));
+        void mergeConversationTimeline(storage, session.userId, peerId, older);
+        return merged;
+      });
       setMessageCursor(cursor);
       setHasMore(Boolean(more));
     } catch (e) {

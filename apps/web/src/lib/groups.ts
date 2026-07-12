@@ -73,7 +73,12 @@ export async function loadCommunityChannelMessages(
   communityId: string,
   channelId: string,
   userId: string,
-  opts?: { cursor?: string; limit?: number; legacy?: boolean }
+  opts?: {
+    cursor?: string;
+    limit?: number;
+    legacy?: boolean;
+    allowLegacyFallback?: boolean;
+  }
 ): Promise<{ messages: GroupDisplayMessage[]; cursor?: string; hasMore: boolean; legacy?: boolean }> {
   const page = await loadChannelHistory(storage, token, communityId, channelId, userId, opts);
   return {

@@ -3,18 +3,22 @@
 import {
   captureGroupKeyFromContent,
   cacheDecryptedMessage,
+  clearLocalChatData,
   createLocalStorageAdapter,
+  deviceStorageKey,
   fetchGroups,
   forEachInboxPage,
   fetchOwnDeviceBundles,
   fetchRecipientDeviceBundles,
   MessageInbox,
   mergeAndUploadAccountBackup,
+  mergeConversationTimeline,
   parseMemberUsernames,
   prepareMediaMessage,
   ReadStateManager,
   bootstrapDevice,
   provisionDeviceForLogin,
+  syncConversationWithCache,
 } from "@vaultchat/client";
 import { useCallSession, useFriends, PresencePicker } from "@vaultchat/chat-react";
 import { generateSafetyNumber, VaultDevice } from "@vaultchat/crypto";
@@ -184,11 +188,17 @@ export function ChatApp() {
     if (messageIdsRef.current.has(msg.id)) return;
     messageIdsRef.current.add(msg.id);
     setMessages((prev) => sortMessages(dedupeMessages([...prev, msg])));
-    setPreviews((prev) => ({
-      ...prev,
-      [peer?.id ?? ""]: previewText(msg),
-    }));
-  }, [peer?.id]);
+    const peerId = peer?.id;
+    if (peerId) {
+      setPreviews((prev) => ({
+        ...prev,
+        [peerId]: previewText(msg),
+      }));
+      if (session?.userId) {
+        void mergeConversationTimeline(webStorage, session.userId, peerId, [msg]);
+      }
+    }
+  }, [peer?.id, session?.userId]);
 
   const handleIncoming = useCallback(
     async (
@@ -609,7 +619,12 @@ export function ChatApp() {
   }
 
   function handleLogout() {
+    const userId = session?.userId;
     void readStateRef.current?.clear();
+    if (userId) {
+      void clearLocalChatData(webStorage, userId);
+      void webStorage.removeItem(deviceStorageKey(userId));
+    }
     clearSession();
     setSession(null);
     deviceRef.current = null;
@@ -629,6 +644,7 @@ export function ChatApp() {
   async function openConversation(peerId: string, peerUsername: string) {
     if (!session) return;
     const generation = ++openGenerationRef.current;
+    const isCurrent = () => generation === openGenerationRef.current;
     const conv = conversations.find((c) => c.peerId === peerId);
     if (conv) readStateRef.current?.markPeerRead(peerId, conv.lastMessageAt);
     setUnreadByPeer((prev) => {
@@ -645,46 +661,50 @@ export function ChatApp() {
     setLoading(true);
 
     try {
-      const { messages: envelopes, cursor, hasMore } = await fetchConversation(
-        session.token,
-        peerId,
-        { limit: 50 }
-      );
-      if (generation !== openGenerationRef.current) return;
-
       const device = deviceRef.current!;
-      const decrypted: DisplayMessage[] = [];
+      const { messages: synced, cursor, hasMore } = await syncConversationWithCache({
+        storage: webStorage,
+        device,
+        token: session.token,
+        userId: session.userId,
+        deviceId: session.deviceId,
+        peerId,
+        limit: 50,
+        isCurrent,
+        onHydrated: (cached) => {
+          if (!isCurrent()) return;
+          for (const m of cached) {
+            inboxRef.current.markProcessed(m.id);
+            messageIdsRef.current.add(m.id);
+          }
+          setMessages(cached);
+          setLoading(false);
+        },
+      });
 
-      for (const envelope of envelopes) {
-        inboxRef.current.markProcessed(envelope.id);
-        const display = await decryptEnvelope(
-          device,
-          envelope,
-          session.userId,
-          historyDecryptOptions(webStorage, session.userId, envelope, session.userId, session.deviceId)
-        );
-        decrypted.push(display);
-        messageIdsRef.current.add(display.id);
+      if (!isCurrent()) return;
+
+      for (const m of synced) {
+        inboxRef.current.markProcessed(m.id);
+        messageIdsRef.current.add(m.id);
       }
 
-      if (generation !== openGenerationRef.current) return;
-
-      setMessages(sortMessages(decrypted));
+      setMessages(synced);
       setMessageCursor(cursor);
       setHasMoreMessages(Boolean(hasMore));
 
-      const last = decrypted[decrypted.length - 1];
+      const last = synced[synced.length - 1];
       if (last) {
         setPreviews((p) => ({ ...p, [peerId]: previewText(last) }));
         readStateRef.current?.markPeerRead(peerId, last.time);
       }
     } catch (e) {
-      if (generation !== openGenerationRef.current) return;
+      if (!isCurrent()) return;
       show(friendlyError(e), "error");
       setScreen("list");
       setPeer(null);
     } finally {
-      if (generation === openGenerationRef.current) setLoading(false);
+      if (isCurrent()) setLoading(false);
     }
   }
 
@@ -710,7 +730,11 @@ export function ChatApp() {
         older.push(display);
         messageIdsRef.current.add(display.id);
       }
-      setMessages((prev) => sortMessages(dedupeMessages([...older, ...prev])));
+      setMessages((prev) => {
+        const merged = sortMessages(dedupeMessages([...older, ...prev]));
+        void mergeConversationTimeline(webStorage, session.userId, peer.id, older);
+        return merged;
+      });
       setMessageCursor(cursor);
       setHasMoreMessages(Boolean(hasMore));
     } catch (e) {
@@ -863,6 +887,7 @@ export function ChatApp() {
       );
       messageIdsRef.current.add(result.messageId);
       await cacheDecryptedMessage(webStorage, session.userId, sentMessage);
+      await mergeConversationTimeline(webStorage, session.userId, peer.id, [sentMessage]);
       setPreviews((p) => ({ ...p, [peer.id]: text }));
       void refreshConversations(session.token);
     } catch (e) {
@@ -925,6 +950,7 @@ export function ChatApp() {
       };
       addMessage(display);
       await cacheDecryptedMessage(webStorage, session.userId, display);
+      await mergeConversationTimeline(webStorage, session.userId, peer.id, [display]);
       setPreviews((p) => ({ ...p, [peer.id]: previewText(display) }));
       void refreshConversations(session.token);
       if (content.type === "media") {

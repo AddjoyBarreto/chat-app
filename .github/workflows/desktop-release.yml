@@ -47,6 +47,7 @@ jobs:
 
       - name: Production desktop env
         working-directory: apps/desktop
+        shell: bash
         run: |
           printf '%s\n' \
             'VITE_API_BASE_URL=https://chat.addjoybarreto.com' \

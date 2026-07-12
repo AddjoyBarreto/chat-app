@@ -8,9 +8,15 @@ export interface EmailConfig {
   smtpPass?: string;
   smtpFrom?: string;
   appBaseUrl: string;
+  /** When true, new accounts are marked emailVerified without sending mail. */
+  skipEmailVerification?: boolean;
 }
 
-let emailConfig: EmailConfig = { appBaseUrl: "http://localhost:3000", secure: false };
+let emailConfig: EmailConfig = {
+  appBaseUrl: "http://localhost:3000",
+  secure: false,
+  skipEmailVerification: false,
+};
 
 export function setEmailConfig(config: Partial<EmailConfig>): void {
   emailConfig = { ...emailConfig, ...config };

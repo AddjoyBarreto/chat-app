@@ -9,22 +9,11 @@ import type { WsClientEvent, WsServerEvent } from "@vaultchat/protocol";
 import Redis from "ioredis";
 import { WebSocketServer, type WebSocket } from "ws";
 import { cleanupCallsForUser, handleCallEvent } from "./calls.js";
+import { gatewayEnv } from "./env.js";
 import { handleUserConnected, handleUserDisconnected, handlePresenceSet } from "./presence.js";
 
-const PORT = Number(process.env.PORT ?? 3001);
-const REDIS_URL = process.env.REDIS_URL ?? "redis://localhost:6379";
-const JWT_SECRET = process.env.JWT_SECRET;
-const DATABASE_URL = process.env.DATABASE_URL;
-
-if (!JWT_SECRET) {
-  console.error("JWT_SECRET is required");
-  process.exit(1);
-}
-
-if (!DATABASE_URL) {
-  console.error("DATABASE_URL is required");
-  process.exit(1);
-}
+const { port: PORT, redisUrl: REDIS_URL, jwtSecret: JWT_SECRET, databaseUrl: DATABASE_URL } =
+  gatewayEnv;
 
 const apiCtx = createApiContext({
   databaseUrl: DATABASE_URL,

@@ -3,6 +3,7 @@
  * Full delivery requires VAPID keys in server .env — see docs/turn-production.md.
  */
 import { registerPushToken } from "@vaultchat/client";
+import { clientEnv } from "@/env/client";
 
 function urlBase64ToUint8Array(base64String: string): Uint8Array {
   const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
@@ -17,7 +18,7 @@ export async function registerWebPush(token: string): Promise<boolean> {
   if (typeof window === "undefined") return false;
   if (!("serviceWorker" in navigator) || !("PushManager" in window)) return false;
 
-  const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+  const vapidPublicKey = clientEnv.vapidPublicKey;
   if (!vapidPublicKey) return false;
 
   try {

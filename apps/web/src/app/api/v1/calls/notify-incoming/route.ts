@@ -1,11 +1,12 @@
 import { notifyIncomingCall } from "@vaultchat/api-core";
 import type { CallType } from "@vaultchat/protocol";
+import { serverEnv } from "@/env/server";
 import { getApiContext, toApiError } from "@/lib/api";
 import { jsonResponse } from "@/lib/response";
 
 export async function POST(request: Request) {
   try {
-    const secret = process.env.GATEWAY_PUSH_SECRET;
+    const secret = serverEnv.gatewayPushSecret;
     if (!secret || request.headers.get("x-gateway-secret") !== secret) {
       return jsonResponse({ error: "Unauthorized" }, 401);
     }

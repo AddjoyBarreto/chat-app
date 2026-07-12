@@ -26,8 +26,9 @@ export {
 } from "@vaultchat/client";
 
 import { setClientConfig } from "@vaultchat/client";
+import { clientEnv } from "@/env/client";
 
 setClientConfig({
-  apiBaseUrl: process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:3000",
-  wsUrl: process.env.NEXT_PUBLIC_WS_URL ?? "ws://localhost:3001",
+  apiBaseUrl: clientEnv.apiBaseUrl,
+  wsUrl: clientEnv.wsUrl,
 });

@@ -6,8 +6,9 @@
  * Usage: DATABASE_URL=postgres://... node scripts/db-reset.mjs
  */
 import { execSync } from "node:child_process";
+import { scriptEnv } from "./env.mjs";
 
-const url = process.env.DATABASE_URL ?? "postgres://vaultchat:vaultchat@localhost:5432/vaultchat";
+const url = scriptEnv.databaseUrl;
 
 const TABLES = [
   "voice_presence",

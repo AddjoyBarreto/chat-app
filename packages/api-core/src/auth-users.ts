@@ -13,7 +13,7 @@ import { isValidPhoneNumber } from "libphonenumber-js";
 import { createToken } from "./auth.js";
 import type { ApiContext } from "./context.js";
 import { throwIfUniqueViolation } from "./db-errors.js";
-import { createVerificationToken, sendVerificationEmail } from "./email.js";
+import { createVerificationToken, getEmailConfig, sendVerificationEmail } from "./email.js";
 import { ApiCoreError } from "./errors.js";
 import { hashPassword, verifyPassword } from "./password.js";
 import { registerDeviceForUser, isDeviceBundleValid } from "./users.js";
@@ -145,7 +145,7 @@ export async function registerUser(
 
   const passwordHash = await hashPassword(body.password);
 
-  const autoVerify = process.env.SKIP_EMAIL_VERIFICATION === "true";
+  const autoVerify = Boolean(getEmailConfig().skipEmailVerification);
 
   let user: { id: string };
   try {

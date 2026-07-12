@@ -7,8 +7,13 @@ import { fileURLToPath } from "node:url";
 const rootDir = path.dirname(fileURLToPath(import.meta.url));
 const monorepoRoot = path.join(rootDir, "../..");
 
-// Load DATABASE_URL, JWT_SECRET, etc. from repo-root .env (not only apps/web/.env)
-for (const envFile of [".env", ".env.local"]) {
+// Local: `.env` then `.env.local`. Production secrets: `.env.production` (Vercel dashboard
+// usually injects these instead; file is for local reference / gateway / migrate).
+const isProd = process.env.NODE_ENV === "production" || process.env.VERCEL === "1";
+const envFiles = isProd
+  ? [".env.production", ".env.production.local"]
+  : [".env", ".env.local"];
+for (const envFile of envFiles) {
   const envPath = path.join(monorepoRoot, envFile);
   if (existsSync(envPath)) loadEnv({ path: envPath, override: false });
 }

@@ -7,10 +7,16 @@ import { execSync } from "node:child_process";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const envExample = path.join(root, ".env.example");
 const envFile = path.join(root, ".env");
+const prodExample = path.join(root, ".env.production.example");
+const prodFile = path.join(root, ".env.production");
 
 if (!existsSync(envFile) && existsSync(envExample)) {
   copyFileSync(envExample, envFile);
-  console.log("Created .env from .env.example — set JWT_SECRET before running services.");
+  console.log("Created .env from .env.example — local Docker secrets.");
+}
+if (!existsSync(prodFile) && existsSync(prodExample)) {
+  copyFileSync(prodExample, prodFile);
+  console.log("Created .env.production from .env.production.example — fill before Vercel.");
 }
 
 console.log("Building workspace packages…");

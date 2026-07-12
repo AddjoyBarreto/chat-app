@@ -1,0 +1,6 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "nextjs",
+  "installCommand": "cd ../.. && corepack enable && pnpm install",
+  "buildCommand": "cd ../.. && pnpm --filter @vaultchat/{protocol,crypto,db,api-core,client,chat-react} build && pnpm --filter @vaultchat/web build"
+}

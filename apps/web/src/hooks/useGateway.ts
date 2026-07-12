@@ -2,8 +2,9 @@
 
 import type { MessageEnvelope, WsClientEvent, WsServerEvent } from "@vaultchat/protocol";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { clientEnv } from "@/env/client";
 
-const WS_URL = process.env.NEXT_PUBLIC_WS_URL ?? "ws://localhost:3001";
+const WS_URL = clientEnv.wsUrl;
 const MAX_RECONNECT_DELAY = 30_000;
 const PING_INTERVAL = 25_000;
 

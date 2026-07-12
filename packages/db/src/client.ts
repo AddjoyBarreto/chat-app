@@ -11,6 +11,18 @@ const globalForDb = globalThis as unknown as {
   vaultchatDbs?: Map<string, Database>;
 };
 
+/** Transaction-mode PgBouncer (Supabase :6543) rejects prepared statements. */
+function usesTransactionPooler(connectionString: string): boolean {
+  try {
+    const u = new URL(connectionString);
+    if (u.port === "6543") return true;
+    if (u.searchParams.get("pgbouncer") === "true") return true;
+  } catch {
+    // fall through
+  }
+  return /[?&]pgbouncer=true\b/i.test(connectionString) || /:6543\b/.test(connectionString);
+}
+
 function getPgClient(connectionString: string): PostgresClient {
   if (!globalForDb.vaultchatPgClients) {
     globalForDb.vaultchatPgClients = new Map();
@@ -24,6 +36,7 @@ function getPgClient(connectionString: string): PostgresClient {
     max: 3,
     idle_timeout: 20,
     connect_timeout: 10,
+    prepare: !usesTransactionPooler(connectionString),
   });
 
   globalForDb.vaultchatPgClients.set(connectionString, client);

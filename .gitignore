@@ -9,9 +9,10 @@ dist
 out
 apps/desktop/src-tauri/target
 
-# env
+# env (keep *.example committed)
 .env
 .env.local
+.env.production
 .env.*.local
 
 # logs

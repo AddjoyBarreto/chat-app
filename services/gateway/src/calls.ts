@@ -7,6 +7,7 @@ import {
   saveCall,
   type CallSession,
 } from "./call-store.js";
+import { gatewayEnv } from "./env.js";
 
 const RING_TIMEOUT_MS = 45_000;
 
@@ -16,8 +17,8 @@ async function notifyCallPush(
   callType: CallType,
   callId: string
 ) {
-  const apiBase = process.env.API_BASE_URL;
-  const secret = process.env.GATEWAY_PUSH_SECRET;
+  const apiBase = gatewayEnv.apiBaseUrl;
+  const secret = gatewayEnv.gatewayPushSecret;
   if (!apiBase || !secret) return;
 
   try {

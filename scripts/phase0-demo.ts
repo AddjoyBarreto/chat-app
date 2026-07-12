@@ -5,8 +5,9 @@
  *   SKIP_EMAIL_VERIFICATION=true pnpm tsx scripts/phase0-demo.ts
  */
 import { VaultDevice } from "@vaultchat/crypto";
+import { scriptEnv } from "./env.mjs";
 
-const API = process.env.API_BASE_URL ?? "http://localhost:3000";
+const API = scriptEnv.apiBaseUrl;
 
 async function register(username: string, device: VaultDevice, index: number) {
   const material = await device.exportKeyMaterial();

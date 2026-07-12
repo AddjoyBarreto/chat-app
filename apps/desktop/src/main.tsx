@@ -4,11 +4,11 @@ import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
+import { desktopEnv } from "./env";
 import "./styles/discord.css";
 import "./styles/community-sidebar.css";
 
-const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:3000";
-const wsUrl = import.meta.env.VITE_WS_URL ?? "ws://localhost:3001";
+const { apiBaseUrl, wsUrl } = desktopEnv;
 
 const isTauri = "__TAURI_INTERNALS__" in window;
 

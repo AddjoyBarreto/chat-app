@@ -65,15 +65,26 @@ export default async function DownloadPage() {
         </div>
 
         <aside className="vl-note" role="note">
-          <p className="vl-note__title">About installer warnings</p>
+          <p className="vl-note__title">macOS: &ldquo;damaged&rdquo; or won&apos;t open?</p>
           <p className="vl-note__body">
-            These files are safe to download from this site. macOS may say the app is
-            &ldquo;damaged&rdquo; — that is Gatekeeper rejecting an unsigned build, not a corrupt
-            file. After installing, clear the quarantine flag in Terminal:
-            <code style={{ display: "block", marginTop: "0.75rem", fontSize: "0.9em" }}>
-              xattr -cr /Applications/VaultChat.app
-            </code>
-            Then open VaultChat again. Windows may show a SmartScreen warning for the same reason.
+            The DMG is unsigned, so Gatekeeper may block it — the file is not corrupt. After you
+            drag VaultChat into <strong>Applications</strong>, open <strong>Terminal</strong> and
+            run:
+          </p>
+          <code style={{ display: "block", marginTop: "0.5rem", fontSize: "0.9em" }}>
+            xattr -d com.apple.quarantine /Applications/VaultChat.app
+          </code>
+          <p className="vl-note__body" style={{ marginTop: "0.75rem" }}>
+            Then open VaultChat from Applications again. If the <strong>.dmg</strong> itself
+            won&apos;t open, remove quarantine from the download first (adjust the path if needed):
+          </p>
+          <code style={{ display: "block", marginTop: "0.5rem", fontSize: "0.9em" }}>
+            xattr -d com.apple.quarantine ~/Downloads/VaultChat.dmg
+          </code>
+          <p className="vl-note__body" style={{ marginTop: "0.75rem" }}>
+            Still blocked? Try clearing all extended attributes on the app:{" "}
+            <code>xattr -cr /Applications/VaultChat.app</code>. Windows may show a similar
+            SmartScreen warning — choose &ldquo;Run anyway&rdquo; if you trust this download.
           </p>
         </aside>
 

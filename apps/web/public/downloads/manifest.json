@@ -11,5 +11,5 @@
     "label": "Windows",
     "available": true
   },
-  "note": "Safe to download. Unsigned builds: macOS may say the app is “damaged” (Gatekeeper). After install run: xattr -cr /Applications/VaultChat.app"
+  "note": "macOS unsigned build: if Gatekeeper says “damaged”, open Terminal after install and run: xattr -d com.apple.quarantine /Applications/VaultChat.app"
 }

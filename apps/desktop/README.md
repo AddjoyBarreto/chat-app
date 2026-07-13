@@ -73,7 +73,22 @@ pnpm --filter @vaultchat/desktop build:all
 
 Unsigned DMGs downloaded from the web trip Gatekeeper with *“VaultChat is damaged and can’t be opened”* — the file is fine; macOS is blocking an unnotarized app.
 
-**Local workaround** (after dragging to Applications):
+**User instructions** (share on the download page):
+
+1. Open `VaultChat.dmg` and drag **VaultChat** into **Applications**.
+2. If macOS blocks the app, open **Terminal** and run:
+   ```bash
+   xattr -d com.apple.quarantine /Applications/VaultChat.app
+   ```
+3. Open VaultChat from Applications again.
+
+If the **DMG** itself will not open:
+
+```bash
+xattr -d com.apple.quarantine ~/Downloads/VaultChat.dmg
+```
+
+Fallback if the app still will not launch:
 
 ```bash
 xattr -cr /Applications/VaultChat.app

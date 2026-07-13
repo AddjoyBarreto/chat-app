@@ -47,6 +47,8 @@ For packaged builds, point these at your production API.
 
 ## Build installers
 
+Voice/video calls need macOS camera + microphone usage strings (`src-tauri/Info.plist`) and device entitlements. After changing those, rebuild the `.app` and open it from **Applications** so the system permission prompts can appear.
+
 ```bash
 pnpm desktop:build
 ```

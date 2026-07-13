@@ -124,15 +124,8 @@ export class CallSession {
       await this.ensurePeerConnection();
       await this.attachLocalMedia(callType);
     } catch (err) {
-      this.config.onError(
-        err instanceof Error && err.name === "NotAllowedError"
-          ? "Microphone or camera permission denied"
-          : err instanceof Error
-            ? err.message
-            : "Failed to start call"
-      );
+      this.config.onError(this.mediaErrorMessage(err));
       void this.endCall();
-      throw err;
     }
   }
 
@@ -145,11 +138,23 @@ export class CallSession {
     try {
       await this.dispatchServerEvent(event);
     } catch (err) {
-      this.config.onError(
-        err instanceof Error ? err.message : "Call connection failed"
-      );
+      this.config.onError(this.mediaErrorMessage(err, "Call connection failed"));
       void this.endCall();
     }
+  }
+
+  private mediaErrorMessage(err: unknown, fallback = "Failed to start call"): string {
+    if (err instanceof Error && (err.name === "NotAllowedError" || /not allowed by the user agent/i.test(err.message))) {
+      return "Microphone or camera access is required for calls";
+    }
+    if (err instanceof Error && err.name === "NotFoundError") {
+      return "No microphone or camera found";
+    }
+    if (err instanceof Error && err.name === "NotReadableError") {
+      return "Microphone or camera is already in use";
+    }
+    if (err instanceof Error && err.message) return err.message;
+    return fallback;
   }
 
   async endCall() {
@@ -253,8 +258,17 @@ export class CallSession {
     return (
       this.config.webrtc ?? {
         RTCPeerConnection: globalThis.RTCPeerConnection,
-        getUserMedia: (constraints: MediaStreamConstraints) =>
-          navigator.mediaDevices.getUserMedia(constraints),
+        getUserMedia: (constraints: MediaStreamConstraints) => {
+          const mediaDevices = navigator.mediaDevices;
+          if (!mediaDevices?.getUserMedia) {
+            throw new Error(
+              typeof window !== "undefined" && !window.isSecureContext
+                ? "Calls require a secure context (HTTPS or the desktop app)"
+                : "Camera/microphone APIs are unavailable in this environment"
+            );
+          }
+          return mediaDevices.getUserMedia(constraints);
+        },
       }
     );
   }

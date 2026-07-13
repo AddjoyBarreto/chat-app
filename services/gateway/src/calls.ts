@@ -5,6 +5,7 @@ import {
   getCall,
   listCallsForUser,
   saveCall,
+  touchCall,
   type CallSession,
 } from "./call-store.js";
 import { gatewayEnv } from "./env.js";
@@ -139,6 +140,7 @@ export async function handleCallEvent(
       if (!call || !isParticipant(call, userId) || call.state === "ended") {
         return { type: "error", error: "Invalid call" };
       }
+      await touchCall(redis, call);
       const target = peerId(call, userId);
       if (event.type === "call_offer") {
         sendToUser(target, { type: "call_offer", callId: event.callId, sdp: event.sdp });

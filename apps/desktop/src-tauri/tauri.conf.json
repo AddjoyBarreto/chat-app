@@ -38,7 +38,9 @@
     "longDescription": "VaultChat is a secure messaging app with Discord-style desktop UI. Messages are encrypted on your device before they leave.",
     "copyright": "Copyright © VaultChat",
     "macOS": {
-      "minimumSystemVersion": "10.15"
+      "minimumSystemVersion": "10.15",
+      "infoPlist": "./Info.plist",
+      "entitlements": "./Entitlements.plist"
     },
     "windows": {
       "webviewInstallMode": {
@@ -46,5 +48,9 @@
       }
     }
   },
-  "plugins": {}
+  "plugins": {
+    "shell": {
+      "open": "((mailto:\\w+)|(tel:\\w+)|(https?://\\w+)|(x-apple\\.systempreferences:)).+"
+    }
+  }
 }

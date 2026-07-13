@@ -2126,6 +2126,74 @@ textarea {
   font-size: 0.875rem;
 }
 
+/* ─── Media permission dialog (Discord-style) ───────────── */
+
+.dc-perm-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  z-index: 900;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.dc-perm-dialog {
+  width: 400px;
+  max-width: 90vw;
+  background: var(--dc-bg-sidebar);
+  border-radius: 12px;
+  padding: 24px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+
+.dc-perm-dialog h2 {
+  margin: 0 0 10px;
+  font-size: 1.15rem;
+  color: var(--dc-text);
+}
+
+.dc-perm-dialog p {
+  margin: 0 0 20px;
+  font-size: 0.9rem;
+  line-height: 1.45;
+  color: var(--dc-text-muted);
+}
+
+.dc-perm-dialog__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.dc-perm-dialog__secondary,
+.dc-perm-dialog__primary {
+  border: none;
+  border-radius: 4px;
+  padding: 8px 16px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.dc-perm-dialog__secondary {
+  background: transparent;
+  color: var(--dc-text);
+}
+
+.dc-perm-dialog__secondary:hover {
+  text-decoration: underline;
+}
+
+.dc-perm-dialog__primary {
+  background: var(--dc-accent, #5865f2);
+  color: #fff;
+}
+
+.dc-perm-dialog__primary:hover {
+  filter: brightness(1.08);
+}
+
 /* ─── Settings ──────────────────────────────────────────── */
 
 .dc-settings-backdrop {

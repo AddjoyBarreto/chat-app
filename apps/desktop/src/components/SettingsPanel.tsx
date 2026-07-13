@@ -127,8 +127,9 @@ export function SettingsPanel({
           <section className="dc-settings__section">
             <h3>Encryption</h3>
             <p className="dc-settings__hint">
-              If messages fail to decrypt on this app, log out and sign in again to link this
-              device, then ask your contact to send a new message.
+              Each install is a linked device with its own keys. Logging out removes keys from this
+              app only — older messages on a newly linked device usually can&apos;t be read. Ask your
+              contact to send a new message after linking.
             </p>
           </section>
         </div>

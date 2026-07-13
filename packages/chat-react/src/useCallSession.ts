@@ -99,7 +99,10 @@ export function useCallSession({
 
   const handleServerEvent = useCallback((event: WsServerEvent) => {
     void callSessionRef.current?.handleServerEvent(event);
-    if (event.type === "error" && event.error === "User offline") {
+    if (
+      event.type === "error" &&
+      (event.error === "User is offline" || event.error === "User offline")
+    ) {
       toast("User is offline", "error");
     }
   }, [toast]);
@@ -114,7 +117,11 @@ export function useCallSession({
       try {
         await callSessionRef.current.startOutgoing(calleeId, type);
       } catch (e) {
-        toast(String(e), "error");
+        const msg = e instanceof Error ? e.message : String(e);
+        // CallSession already toasts via onError for media failures.
+        if (!/permission denied|NotAllowedError|not allowed by the user agent/i.test(msg)) {
+          toast(msg, "error");
+        }
       }
     },
     [phase, isConnected, toast]
@@ -127,7 +134,10 @@ export function useCallSession({
     try {
       await callSessionRef.current.acceptIncoming(call.callId, call.callerId, call.callType);
     } catch (e) {
-      toast(String(e), "error");
+      const msg = e instanceof Error ? e.message : String(e);
+      if (!/permission denied|NotAllowedError|not allowed by the user agent/i.test(msg)) {
+        toast(msg, "error");
+      }
     }
   }, [incomingCall, toast]);
 

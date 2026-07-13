@@ -72,6 +72,7 @@ import {
 import {
   ensureCommunityEncryption,
   adminReshareGroupKey,
+  adminResetGroupEncryptionKey,
   createGroupWithKey,
   decryptIncomingGroupMessage,
   getGroupAccess,
@@ -1029,6 +1030,29 @@ export function ChatApp() {
     }
   }
 
+  async function handleResetCommunityEncryptionKey() {
+    if (!session || !activeCommunity || !deviceRef.current) return;
+    setResharingCommunity(true);
+    try {
+      const { sharedWith } = await adminResetGroupEncryptionKey(
+        session.token,
+        deviceRef.current,
+        session.userId,
+        activeCommunity.id
+      );
+      setGroupKeyVersion((v) => v + 1);
+      show(
+        `New encryption key generated and sent to ${sharedWith} member(s). Older messages stay locked.`,
+        "info"
+      );
+    } catch (e) {
+      show(friendlyError(e), "error");
+      throw e;
+    } finally {
+      setResharingCommunity(false);
+    }
+  }
+
   async function handleShareCommunityKeyWithMember(targetUserId: string) {
     if (!session || !activeCommunity || !deviceRef.current) return;
     await shareGroupKeyWithMemberForCommunity(
@@ -1409,6 +1433,7 @@ export function ChatApp() {
           groupKeyVersion={groupKeyVersion}
           resharing={resharingCommunity}
           onReshareKey={handleReshareCommunityKey}
+          onResetEncryptionKey={handleResetCommunityEncryptionKey}
           onShareKeyWithMember={handleShareCommunityKeyWithMember}
           onCommunityUpdated={(patch) => {
             setActiveCommunity((prev) => (prev ? { ...prev, ...patch } : prev));

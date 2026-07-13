@@ -1,3 +1,10 @@
+import {
+  IconMic,
+  IconMicOff,
+  IconPhoneHangup,
+  IconVideo,
+  IconVideoOff,
+} from "@vaultchat/chat-react";
 import type { CallPhase } from "@vaultchat/client";
 import type { CallType } from "@vaultchat/protocol";
 import { useEffect, useRef, useState } from "react";
@@ -28,6 +35,7 @@ export function ActiveCallOverlay({
   const remoteAudioRef = useRef<HTMLAudioElement>(null);
   const [muted, setMuted] = useState(false);
   const [cameraOff, setCameraOff] = useState(false);
+  const [elapsed, setElapsed] = useState(0);
 
   useEffect(() => {
     if (localRef.current) localRef.current.srcObject = localStream;
@@ -38,6 +46,18 @@ export function ActiveCallOverlay({
     if (remoteAudioRef.current) remoteAudioRef.current.srcObject = remoteStream;
   }, [remoteStream]);
 
+  useEffect(() => {
+    if (phase !== "active") {
+      setElapsed(0);
+      return;
+    }
+    const started = Date.now();
+    const id = window.setInterval(() => {
+      setElapsed(Math.floor((Date.now() - started) / 1000));
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, [phase]);
+
   const status =
     phase === "outgoing"
       ? "Calling…"
@@ -45,9 +65,10 @@ export function ActiveCallOverlay({
         ? "Incoming…"
         : phase === "connecting"
           ? "Connecting…"
-          : "Connected";
+          : formatElapsed(elapsed);
 
   const isVideo = callType === "video";
+  const initial = peerUsername[0]?.toUpperCase() ?? "?";
 
   return (
     <div className={`dc-call${isVideo ? "" : " dc-call--voice"}`}>
@@ -61,6 +82,11 @@ export function ActiveCallOverlay({
             playsInline
             muted
           />
+          {!remoteStream && (
+            <div className="dc-call__waiting">
+              <div className="dc-call__avatar dc-call__avatar--pulse">{initial}</div>
+            </div>
+          )}
         </>
       ) : (
         <audio ref={remoteAudioRef} autoPlay playsInline className="dc-call__audio" />
@@ -68,7 +94,7 @@ export function ActiveCallOverlay({
 
       <div className="dc-call__panel">
         {!isVideo && (
-          <div className="dc-call__avatar">{peerUsername[0]?.toUpperCase()}</div>
+          <div className="dc-call__avatar dc-call__avatar--pulse">{initial}</div>
         )}
         <p className="dc-call__name">@{peerUsername}</p>
         <p className="dc-call__status">{status}</p>
@@ -80,8 +106,9 @@ export function ActiveCallOverlay({
               className={`dc-call__btn${muted ? " dc-call__btn--off" : ""}`}
               onClick={() => setMuted(!onToggleMute())}
               title={muted ? "Unmute" : "Mute"}
+              aria-label={muted ? "Unmute" : "Mute"}
             >
-              {muted ? "🔇" : "🎤"}
+              {muted ? <IconMicOff size={20} /> : <IconMic size={20} />}
             </button>
           )}
           {isVideo && onToggleCamera && (
@@ -90,15 +117,28 @@ export function ActiveCallOverlay({
               className={`dc-call__btn${cameraOff ? " dc-call__btn--off" : ""}`}
               onClick={() => setCameraOff(!onToggleCamera())}
               title={cameraOff ? "Turn camera on" : "Turn camera off"}
+              aria-label={cameraOff ? "Turn camera on" : "Turn camera off"}
             >
-              {cameraOff ? "📷" : "📹"}
+              {cameraOff ? <IconVideoOff size={20} /> : <IconVideo size={20} />}
             </button>
           )}
-          <button type="button" className="dc-call__btn dc-call__btn--end" onClick={onEnd} title="End call">
-            ✕
+          <button
+            type="button"
+            className="dc-call__btn dc-call__btn--end"
+            onClick={onEnd}
+            title="End call"
+            aria-label="End call"
+          >
+            <IconPhoneHangup size={22} />
           </button>
         </div>
       </div>
     </div>
   );
+}
+
+function formatElapsed(totalSeconds: number): string {
+  const m = Math.floor(totalSeconds / 60);
+  const s = totalSeconds % 60;
+  return `${m}:${s.toString().padStart(2, "0")}`;
 }

@@ -151,3 +151,51 @@ export function ChannelTypeIcon({
   if (type === "announcement") return <IconAnnouncement className={className} size={size} />;
   return <IconHash className={className} size={size} />;
 }
+
+export function IconPhone({ className, size = 24 }: IconProps) {
+  return (
+    <Svg className={className} size={size}>
+      <path d="M6.62 10.79a15.15 15.15 0 0 0 6.59 6.59l2.2-2.2a1 1 0 0 1 1.01-.24c1.12.37 2.33.57 3.58.57a1 1 0 0 1 1 1V20a1 1 0 0 1-1 1A17 17 0 0 1 3 4a1 1 0 0 1 1-1h3.5a1 1 0 0 1 1 1c0 1.25.2 2.45.57 3.57a1 1 0 0 1-.25 1.02l-2.2 2.2z" />
+    </Svg>
+  );
+}
+
+export function IconPhoneHangup({ className, size = 24 }: IconProps) {
+  return (
+    <Svg className={className} size={size}>
+      <path d="M12 9c-1.6 0-3.15.25-4.6.72v3.1c0 .39-.23.74-.56.9-.98.49-1.87 1.12-2.66 1.85-.18.18-.43.28-.7.28-.28 0-.53-.11-.71-.29L.29 13.08a.996.996 0 0 1 0-1.41C3.34 8.69 7.46 7 12 7s8.66 1.69 11.71 4.67c.39.39.39 1.02 0 1.41l-2.48 2.48c-.18.18-.43.29-.71.29-.27 0-.52-.1-.7-.28a11.3 11.3 0 0 0-2.67-1.85.96.96 0 0 1-.56-.9v-3.1C15.15 9.25 13.6 9 12 9z" />
+    </Svg>
+  );
+}
+
+export function IconMic({ className, size = 22 }: IconProps) {
+  return (
+    <Svg className={className} size={size}>
+      <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5-3c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z" />
+    </Svg>
+  );
+}
+
+export function IconMicOff({ className, size = 22 }: IconProps) {
+  return (
+    <Svg className={className} size={size}>
+      <path d="M19 11h-1.7c0 .58-.1 1.13-.27 1.64l1.27 1.27c.44-.88.7-1.87.7-2.91zm-6 0c0-.26-.02-.51-.06-.75l-4.19-4.19C8.91 5.55 9.4 5 10 5c1.66 0 3 1.34 3 3v3zM4.41 2.86 3 4.27l6 6V11c0 1.66 1.34 3 3 3 .23 0 .44-.03.65-.08l1.66 1.66c-.71.33-1.5.52-2.31.52-2.76 0-5.3-2.1-5.3-5.1H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c.91-.13 1.77-.45 2.54-.9L19.73 21l1.41-1.41L4.41 2.86z" />
+    </Svg>
+  );
+}
+
+export function IconVideo({ className, size = 22 }: IconProps) {
+  return (
+    <Svg className={className} size={size}>
+      <path d="M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4z" />
+    </Svg>
+  );
+}
+
+export function IconVideoOff({ className, size = 22 }: IconProps) {
+  return (
+    <Svg className={className} size={size}>
+      <path d="M21 6.5l-4 4V7c0-.55-.45-1-1-1H9.82L21 17.18V6.5zM3.27 2 2 3.27 4.73 6H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.21 0 .39-.08.54-.18L19.73 21 21 19.73 3.27 2z" />
+    </Svg>
+  );
+}

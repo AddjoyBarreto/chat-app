@@ -23,6 +23,7 @@ import {
   presenceLabel,
   promoteCommunityMember,
   reshareGroupKey,
+  resetGroupEncryptionKey,
   sendChannelContentMessage,
   sendFriendRequest,
   shareGroupKeyWithMember,
@@ -141,6 +142,25 @@ export function GroupServerView({
     }
   }
 
+  async function handleResetEncryptionKey() {
+    setResharing(true);
+    setError(null);
+    try {
+      const device = await loadUserDevice(token, userId, username, deviceId);
+      await resetGroupEncryptionKey(storage, token, device, userId, groupId);
+      setHasGroupKey(true);
+      setError(null);
+      const channel = activeChannelRef.current;
+      if (channel?.type === "text") {
+        await loadMessages(channel.id);
+      }
+    } catch (e) {
+      setError(friendlyError(e));
+    } finally {
+      setResharing(false);
+    }
+  }
+
   async function handleShareKeyWithMember(targetUserId: string) {
     const device = await loadUserDevice(token, userId, username, deviceId);
     await shareGroupKeyWithMember(storage, token, device, userId, groupId, targetUserId);
@@ -188,9 +208,14 @@ export function GroupServerView({
       setHasMoreMessages(page.hasMore);
       setLegacyHistory(Boolean(page.legacy));
       if (parsed.length > 0 && parsed.every((m) => m.failed)) {
+        const cipher = await loadGroupCipher(storage, userId, groupId);
         setError(
-          "Couldn't decrypt channel history. Your community encryption key may be out of date — open Server Settings and re-share the key, or ask an admin to re-share."
+          cipher
+            ? "Channel history was encrypted with a previous key and can't be unlocked. New messages will work."
+            : "Couldn't decrypt channel history. Your community encryption key may be out of date — open Server Settings → Encryption to generate a new key, or ask an admin to re-share."
         );
+      } else {
+        setError(null);
       }
     },
     [token, groupId, storage, userId, username, deviceId, members]
@@ -573,7 +598,9 @@ export function GroupServerView({
 
             {!hasGroupKey && (
               <div className="dc-gc-banner">
-                Missing group encryption key. Ask an admin to re-share the key.
+                {isAdmin
+                  ? "Missing group encryption key on this device. Open Server Settings → Encryption to generate a new key (old messages stay locked)."
+                  : "Missing group encryption key. Ask an admin to re-share the key."}
               </div>
             )}
 
@@ -875,12 +902,14 @@ export function GroupServerView({
           isOwner={isOwner}
           friends={friends.friends}
           resharing={resharing}
+          hasEncryptionKey={hasGroupKey}
           initialTab={settingsTab}
           onClose={() => setSettingsOpen(false)}
           onUpdated={(patch) => {
             if (patch.name) setDisplayName(patch.name);
           }}
           onReshareKey={handleReshareKey}
+          onResetEncryptionKey={handleResetEncryptionKey}
           onShareKeyWithMember={handleShareKeyWithMember}
           onMembersChanged={() => void refreshMembers()}
         />

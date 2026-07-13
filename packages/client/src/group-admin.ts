@@ -1,4 +1,4 @@
-import { serializeMessageContent, type VaultDevice } from "@vaultchat/crypto";
+import { GroupCipher, serializeMessageContent, type VaultDevice } from "@vaultchat/crypto";
 import type { MessageContent, MessageType } from "@vaultchat/protocol";
 import {
   fetchOwnDeviceBundles,
@@ -106,6 +106,29 @@ export async function reshareGroupKey(
     throw new Error("You don't have the group encryption key on this device");
   }
 
+  await distributeGroupKey(storage, token, device, userId, groupId, keyBase64);
+  return { sharedWith: members.filter((m) => m.userId !== userId).length };
+}
+
+/**
+ * Mint a fresh community AES key and distribute it to all members.
+ * Use when this admin device no longer has the key (e.g. after a destructive wipe).
+ * Prior messages encrypted under the old key stay undecryptable.
+ */
+export async function resetGroupEncryptionKey(
+  storage: StorageAdapter,
+  token: string,
+  device: VaultDevice,
+  userId: string,
+  groupId: string
+): Promise<{ sharedWith: number }> {
+  const members = await fetchGroupMembers(token, groupId);
+  const me = members.find((m) => m.userId === userId);
+  if (!me || me.role !== "admin") {
+    throw new Error("Only group admins can reset the encryption key");
+  }
+
+  const { keyBase64 } = await GroupCipher.generate();
   await distributeGroupKey(storage, token, device, userId, groupId, keyBase64);
   return { sharedWith: members.filter((m) => m.userId !== userId).length };
 }

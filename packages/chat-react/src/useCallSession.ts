@@ -6,6 +6,7 @@ import {
 } from "@vaultchat/client";
 import type { CallType, WsClientEvent, WsServerEvent } from "@vaultchat/protocol";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallRingtone } from "./useCallRingtone.js";
 
 export interface UseCallSessionOptions {
   session: StoredSession | null;
@@ -14,6 +15,8 @@ export interface UseCallSessionOptions {
   resolveUsername: (userId: string) => string;
   onToast?: (message: string, type?: "info" | "error") => void;
   webrtc?: WebRtcAdapter;
+  /** Play browser ringtone during incoming/outgoing (web/desktop). Default true. */
+  ringtone?: boolean | { src?: string };
 }
 
 export function useCallSession({
@@ -23,6 +26,7 @@ export function useCallSession({
   resolveUsername,
   onToast,
   webrtc,
+  ringtone = true,
 }: UseCallSessionOptions) {
   const toast = onToast ?? (() => {});
   const callSessionRef = useRef<CallSession | null>(null);
@@ -40,6 +44,10 @@ export function useCallSession({
     callerUsername: string;
     callType: CallType;
   } | null>(null);
+
+  const ringtoneEnabled = ringtone !== false;
+  const ringtoneSrc = typeof ringtone === "object" ? ringtone.src : undefined;
+  useCallRingtone(phase, { enabled: ringtoneEnabled, src: ringtoneSrc });
 
   useEffect(() => {
     if (!session) {

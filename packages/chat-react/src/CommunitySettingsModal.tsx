@@ -15,6 +15,7 @@ import type { GroupMemberInfo, InviteInfo } from "@vaultchat/protocol";
 import { useCallback, useEffect, useState } from "react";
 import { FriendMembersInput } from "./FriendMembersInput.js";
 import { IconClose } from "./CommunityIcons.js";
+import { OverlayPortal } from "./OverlayPortal.js";
 
 export type CommunitySettingsTab = "overview" | "members" | "invites";
 
@@ -36,9 +37,11 @@ export function CommunitySettingsModal({
   onClose,
   onUpdated,
   onReshareKey,
+  onResetEncryptionKey,
   onShareKeyWithMember,
   onMembersChanged,
   resharing,
+  hasEncryptionKey = true,
   initialTab = "overview",
 }: {
   communityId: string;
@@ -53,9 +56,12 @@ export function CommunitySettingsModal({
   onClose: () => void;
   onUpdated: (patch: { name?: string; description?: string }) => void;
   onReshareKey: () => Promise<void>;
+  /** When this device has no key, admin can mint a new one (old history stays locked). */
+  onResetEncryptionKey?: () => Promise<void>;
   onShareKeyWithMember: (targetUserId: string) => Promise<void>;
   onMembersChanged?: () => void;
   resharing?: boolean;
+  hasEncryptionKey?: boolean;
   initialTab?: CommunitySettingsTab;
 }) {
   const [tab, setTab] = useState<CommunitySettingsTab>(initialTab);
@@ -273,18 +279,48 @@ export function CommunitySettingsModal({
         {isAdmin && (
           <section className="vc-server-settings__card">
             <h3 className="vc-server-settings__card-title">Encryption</h3>
-            <p className="vc-server-settings__card-desc">
-              Messages are end-to-end encrypted with a shared key on each member&apos;s device. If
-              someone can&apos;t read messages, re-share the key with all members.
-            </p>
-            <button
-              type="button"
-              className="vc-btn vc-btn--secondary"
-              onClick={() => void onReshareKey()}
-              disabled={resharing}
-            >
-              {resharing ? "Sharing…" : "Re-share encryption key"}
-            </button>
+            {hasEncryptionKey ? (
+              <>
+                <p className="vc-server-settings__card-desc">
+                  Messages are end-to-end encrypted with a shared key on each member&apos;s device. If
+                  someone can&apos;t read messages, re-share the key with all members.
+                </p>
+                <button
+                  type="button"
+                  className="vc-btn vc-btn--secondary"
+                  onClick={() => void onReshareKey()}
+                  disabled={resharing}
+                >
+                  {resharing ? "Sharing…" : "Re-share encryption key"}
+                </button>
+              </>
+            ) : (
+              <>
+                <p className="vc-server-settings__card-desc">
+                  This device is missing the community encryption key, so you can&apos;t read existing
+                  messages or re-share the old key. Generate a new key to restore chat for everyone —
+                  prior messages will stay locked.
+                </p>
+                <button
+                  type="button"
+                  className="vc-btn vc-btn--primary"
+                  onClick={() => {
+                    if (
+                      !onResetEncryptionKey ||
+                      !window.confirm(
+                        "Generate a new encryption key? Existing channel history will remain unreadable on all devices."
+                      )
+                    ) {
+                      return;
+                    }
+                    void onResetEncryptionKey();
+                  }}
+                  disabled={resharing || !onResetEncryptionKey}
+                >
+                  {resharing ? "Generating…" : "Generate new encryption key"}
+                </button>
+              </>
+            )}
           </section>
         )}
       </div>
@@ -433,75 +469,77 @@ export function CommunitySettingsModal({
   }
 
   return (
-    <div className="vc-server-settings-overlay" role="dialog" aria-modal aria-label="Server settings">
-      <div className="vc-server-settings">
-        <nav className="vc-server-settings__nav" aria-label="Server settings navigation">
-          <div className="vc-server-settings__nav-header">
-            <span className="vc-server-settings__nav-icon" aria-hidden>
-              {communityName[0]?.toUpperCase() ?? "S"}
-            </span>
-            <div className="vc-server-settings__nav-meta">
-              <span className="vc-server-settings__nav-label">Server</span>
-              <span className="vc-server-settings__nav-name">{communityName}</span>
+    <OverlayPortal>
+      <div className="vc-server-settings-overlay" role="dialog" aria-modal aria-label="Server settings">
+        <div className="vc-server-settings">
+          <nav className="vc-server-settings__nav" aria-label="Server settings navigation">
+            <div className="vc-server-settings__nav-header">
+              <span className="vc-server-settings__nav-icon" aria-hidden>
+                {communityName[0]?.toUpperCase() ?? "S"}
+              </span>
+              <div className="vc-server-settings__nav-meta">
+                <span className="vc-server-settings__nav-label">Server</span>
+                <span className="vc-server-settings__nav-name">{communityName}</span>
+              </div>
             </div>
-          </div>
 
-          {tabs.map((t) => (
-            <button
-              key={t}
-              type="button"
-              className={`vc-server-settings__nav-item${tab === t ? " vc-server-settings__nav-item--active" : ""}`}
-              onClick={() => setTab(t)}
-            >
-              {TAB_LABELS[t]}
-            </button>
-          ))}
-        </nav>
+            {tabs.map((t) => (
+              <button
+                key={t}
+                type="button"
+                className={`vc-server-settings__nav-item${tab === t ? " vc-server-settings__nav-item--active" : ""}`}
+                onClick={() => setTab(t)}
+              >
+                {TAB_LABELS[t]}
+              </button>
+            ))}
+          </nav>
 
-        <div className="vc-server-settings__main">
-          <header className="vc-server-settings__header">
-            <h2>{TAB_LABELS[tab]}</h2>
-            <button
-              type="button"
-              className="vc-server-settings__close"
-              onClick={onClose}
-              aria-label="Close server settings"
-            >
-              <IconClose size={18} />
-              <span className="vc-server-settings__esc">ESC</span>
-            </button>
-          </header>
+          <div className="vc-server-settings__main">
+            <header className="vc-server-settings__header">
+              <h2>{TAB_LABELS[tab]}</h2>
+              <button
+                type="button"
+                className="vc-server-settings__close"
+                onClick={onClose}
+                aria-label="Close server settings"
+              >
+                <IconClose size={18} />
+                <span className="vc-server-settings__esc">ESC</span>
+              </button>
+            </header>
 
-          <div className="vc-server-settings__body">
-            {error && (
-              <div className="vc-banner vc-banner--warning" role="alert">
-                {error}
-              </div>
-            )}
-            {success && (
-              <div className="vc-banner vc-banner--info" role="status">
-                {success}
-                <button type="button" className="vc-banner__dismiss" onClick={() => setSuccess(null)}>
-                  <IconClose size={14} />
-                </button>
-              </div>
-            )}
+            <div className="vc-server-settings__body">
+              {error && (
+                <div className="vc-banner vc-banner--warning" role="alert">
+                  {error}
+                </div>
+              )}
+              {success && (
+                <div className="vc-banner vc-banner--info" role="status">
+                  {success}
+                  <button type="button" className="vc-banner__dismiss" onClick={() => setSuccess(null)}>
+                    <IconClose size={14} />
+                  </button>
+                </div>
+              )}
 
-            {loading ? (
-              <div className="vc-server-settings__loading">
-                <div className="vc-spinner" />
-                <p>Loading settings…</p>
-              </div>
-            ) : (
-              <>
-                {tab === "overview" && renderOverview()}
-                {tab === "members" && renderMembers()}
-                {tab === "invites" && renderInvites()}
-              </>
-            )}
+              {loading ? (
+                <div className="vc-server-settings__loading">
+                  <div className="vc-spinner" />
+                  <p>Loading settings…</p>
+                </div>
+              ) : (
+                <>
+                  {tab === "overview" && renderOverview()}
+                  {tab === "members" && renderMembers()}
+                  {tab === "invites" && renderInvites()}
+                </>
+              )}
+            </div>
           </div>
         </div>
       </div>
-    </div>
+    </OverlayPortal>
   );
 }

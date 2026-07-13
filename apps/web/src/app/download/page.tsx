@@ -67,10 +67,13 @@ export default async function DownloadPage() {
         <aside className="vl-note" role="note">
           <p className="vl-note__title">About installer warnings</p>
           <p className="vl-note__body">
-            These files are safe to download from this site. Builds are not Apple- or
-            Microsoft-licensed (code-signed) yet, so your OS may show a Gatekeeper or SmartScreen
-            warning. That is expected for early releases — choose Open / Run anyway if you trust
-            this download. Nothing is wrong with the file itself.
+            These files are safe to download from this site. macOS may say the app is
+            &ldquo;damaged&rdquo; — that is Gatekeeper rejecting an unsigned build, not a corrupt
+            file. After installing, clear the quarantine flag in Terminal:
+            <code style={{ display: "block", marginTop: "0.75rem", fontSize: "0.9em" }}>
+              xattr -cr /Applications/VaultChat.app
+            </code>
+            Then open VaultChat again. Windows may show a SmartScreen warning for the same reason.
           </p>
         </aside>
 

@@ -118,6 +118,7 @@ export function CommunityView({
   const [profileMember, setProfileMember] = useState<GroupMemberInfo | null>(null);
   const [profileAnchor, setProfileAnchor] = useState<{ top: number; left: number } | null>(null);
   const messageIdsRef = useRef(new Set<string>());
+  const sendingInFlightRef = useRef(false);
   const activeChannelRef = useRef<ChannelInfo | null>(null);
   activeChannelRef.current = activeChannel;
 
@@ -413,9 +414,18 @@ export function CommunityView({
   );
 
   async function handleSend() {
-    if (!draft.trim() || !hasGroupKey || activeChannel?.type !== "text") return;
+    if (
+      sendingInFlightRef.current ||
+      sending ||
+      !draft.trim() ||
+      !hasGroupKey ||
+      activeChannel?.type !== "text"
+    ) {
+      return;
+    }
     const text = draft.trim();
     const channelId = activeChannel.id;
+    sendingInFlightRef.current = true;
     setSending(true);
     setDraft("");
     const optimisticId = crypto.randomUUID();
@@ -430,19 +440,24 @@ export function CommunityView({
     setMessages((prev) => [...prev, optimistic]);
     try {
       const result = await sendChannelTextMessage(token, userId, communityId, channelId, text);
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.id === optimisticId ? { ...m, id: result.messageId, time: result.createdAt } : m
-        )
-      );
-      messageIdsRef.current.delete(optimisticId);
+      // Register server id before reconcile so a late WS echo can't append a second copy.
       messageIdsRef.current.add(result.messageId);
+      messageIdsRef.current.delete(optimisticId);
+      setMessages((prev) => {
+        if (prev.some((m) => m.id === result.messageId)) {
+          return prev.filter((m) => m.id !== optimisticId);
+        }
+        return prev.map((m) =>
+          m.id === optimisticId ? { ...m, id: result.messageId, time: result.createdAt } : m
+        );
+      });
     } catch (e) {
       messageIdsRef.current.delete(optimisticId);
       setMessages((prev) => prev.filter((m) => m.id !== optimisticId));
       setDraft(text);
       setError(friendlyError(e));
     } finally {
+      sendingInFlightRef.current = false;
       setSending(false);
     }
   }
@@ -580,6 +595,7 @@ export function CommunityView({
                 </div>
               ) : (
                 <Virtuoso
+                  className="vc-community-virtuoso"
                   style={{ height: "100%" }}
                   data={messages}
                   initialTopMostItemIndex={messages.length - 1}

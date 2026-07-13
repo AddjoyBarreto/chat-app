@@ -69,6 +69,27 @@ Full bundle (app + dmg/msi):
 pnpm --filter @vaultchat/desktop build:all
 ```
 
+### macOS “damaged” / Gatekeeper
+
+Unsigned DMGs downloaded from the web trip Gatekeeper with *“VaultChat is damaged and can’t be opened”* — the file is fine; macOS is blocking an unnotarized app.
+
+**Local workaround** (after dragging to Applications):
+
+```bash
+xattr -cr /Applications/VaultChat.app
+```
+
+**Proper fix:** Apple Developer Program ($99/yr) + [Developer ID Application](https://v2.tauri.app/distribute/sign/macos/) certificate, then set these GitHub Actions secrets so `.github/workflows/desktop-release.yml` signs and notarizes on build:
+
+| Secret | Purpose |
+|--------|---------|
+| `APPLE_CERTIFICATE` | Base64 of exported `.p12` (`openssl base64 -A -in cert.p12`) |
+| `APPLE_CERTIFICATE_PASSWORD` | Password used when exporting the `.p12` |
+| `APPLE_SIGNING_IDENTITY` | e.g. `Developer ID Application: Your Name (TEAMID)` |
+| `APPLE_ID` / `APPLE_PASSWORD` / `APPLE_TEAM_ID` | Apple ID + app-specific password + team ID (notarization) |
+
+Or use App Store Connect API keys (`APPLE_API_ISSUER`, `APPLE_API_KEY`, `APPLE_API_KEY_PATH`) instead of Apple ID credentials. Rebuild, replace `apps/web/public/downloads/VaultChat.dmg`, and redeploy.
+
 ### Port 3002 already in use
 
 Another Vite/desktop dev session may still be running. Free the port:

@@ -104,6 +104,7 @@ export function useVaultChat(options: UseVaultChatOptions = {}) {
 
   const deviceRef = useRef<VaultDevice | null>(null);
   const messageIdsRef = useRef(new Set<string>());
+  const sendingInFlightRef = useRef(false);
   const openGenerationRef = useRef(0);
   const inboxRef = useRef(new MessageInbox());
   const readStateRef = useRef<ReadStateManager | null>(null);
@@ -573,7 +574,7 @@ export function useVaultChat(options: UseVaultChatOptions = {}) {
 
   async function sendMessage() {
     const sess = sessionRef.current;
-    if (!sess || !peer || !draft.trim()) return;
+    if (sendingInFlightRef.current || sending || !sess || !peer || !draft.trim()) return;
     const device = deviceRef.current;
     if (!device) {
       toast("Device keys missing. Please log out and sign in again.", "error");
@@ -582,6 +583,7 @@ export function useVaultChat(options: UseVaultChatOptions = {}) {
 
     const text = draft.trim();
     setDraft("");
+    sendingInFlightRef.current = true;
     setSending(true);
 
     const optimisticId = crypto.randomUUID();
@@ -655,6 +657,7 @@ export function useVaultChat(options: UseVaultChatOptions = {}) {
       messageIdsRef.current.delete(optimisticId);
       toast(friendlyError(e), "error");
     } finally {
+      sendingInFlightRef.current = false;
       setSending(false);
     }
   }

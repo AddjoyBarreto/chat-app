@@ -15,3 +15,7 @@ Place release binaries here before deploying the web app. They are served as sta
 ## Safety
 
 There is no public upload API. Only operators who can write to this folder (or the deploy pipeline) can change installers. Users download over HTTPS from the same origin.
+
+## macOS “damaged” dialog
+
+The DMG from CI is unsigned unless Apple signing secrets are configured. Gatekeeper then reports the app as damaged. That is expected until notarization is set up — see `apps/desktop/README.md`. For testing: `xattr -cr /Applications/VaultChat.app`.

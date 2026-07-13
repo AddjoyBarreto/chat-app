@@ -109,3 +109,11 @@ export async function adoptWorkingGroupKey(
   }
   return false;
 }
+
+/** Remove all cached group/community encryption keys for a user. */
+export async function clearGroupKeys(
+  storage: StorageAdapter,
+  userId: string
+): Promise<void> {
+  await storage.removeItem(groupKeysStorageKey(userId));
+}

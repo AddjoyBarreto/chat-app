@@ -249,6 +249,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const userId = session?.userId;
     gatewayRef.current?.close();
     gatewayRef.current = null;
+    await readStateRef.current?.clear();
     if (userId) {
       await clearLocalChatData(storage, userId);
       await storage.removeItem(deviceStorageKey(userId));

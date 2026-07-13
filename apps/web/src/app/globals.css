@@ -472,6 +472,37 @@ button:disabled {
   max-width: 820px;
   margin: 0 auto;
   padding: 20px 24px 12px;
+  overflow: hidden;
+}
+
+.vc-messages__virtuoso {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+}
+
+.vc-messages__virtuoso [data-virtuoso-scroller],
+.vc-community-virtuoso [data-virtuoso-scroller] {
+  overflow-x: hidden !important;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--text-muted) 55%, transparent) transparent;
+}
+
+.vc-messages__virtuoso [data-virtuoso-scroller]::-webkit-scrollbar,
+.vc-community-virtuoso [data-virtuoso-scroller]::-webkit-scrollbar {
+  width: 8px;
+  height: 0;
+}
+
+.vc-messages__virtuoso [data-virtuoso-scroller]::-webkit-scrollbar-thumb,
+.vc-community-virtuoso [data-virtuoso-scroller]::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--text-muted) 45%, transparent);
+  border-radius: 999px;
+}
+
+.vc-messages__virtuoso [data-virtuoso-scroller]::-webkit-scrollbar-track,
+.vc-community-virtuoso [data-virtuoso-scroller]::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 .vc-bubble-row {
@@ -700,6 +731,9 @@ button:disabled {
   resize: none;
   max-height: 120px;
   line-height: 1.4;
+  min-width: 0;
+  overflow-x: hidden;
+  word-break: break-word;
 }
 
 .vc-composer__input::placeholder {
@@ -3360,6 +3394,12 @@ button:disabled {
   padding: 16px 20px;
   display: flex;
   flex-direction: column;
+}
+
+.vc-community-virtuoso {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
 }
 
 .vc-community-messages__older {

@@ -65,6 +65,7 @@ export default function GroupChatScreen() {
   const [members, setMembers] = useState<Awaited<ReturnType<typeof fetchGroupMembers>>>([]);
   const [messages, setMessages] = useState<GroupMessageItem[]>([]);
   const messageIds = useRef(new Set<string>());
+  const sendingInFlightRef = useRef(false);
   const activeChannelRef = useRef<ChannelInfo | null>(null);
   activeChannelRef.current = activeChannel;
   const [messageCursor, setMessageCursor] = useState<string | undefined>();
@@ -358,11 +359,22 @@ export default function GroupChatScreen() {
   }
 
   async function handleSend() {
-    if (!session || !groupId || !draft.trim() || !hasKey || !activeChannel) return;
+    if (
+      sendingInFlightRef.current ||
+      sending ||
+      !session ||
+      !groupId ||
+      !draft.trim() ||
+      !hasKey ||
+      !activeChannel
+    ) {
+      return;
+    }
     if (activeChannel.type !== "text") return;
     const text = draft.trim();
     const channelId = activeChannel.id;
     setDraft("");
+    sendingInFlightRef.current = true;
     setSending(true);
     const optimisticId = `${Date.now()}-local`;
     messageIds.current.add(optimisticId);
@@ -387,19 +399,24 @@ export default function GroupChatScreen() {
         { type: "text", text },
         "text"
       );
-      messageIds.current.delete(optimisticId);
+      // Register server id before reconcile so a late WS echo can't append a second copy.
       messageIds.current.add(result.messageId);
-      setMessages((prev) =>
-        prev.map((m) =>
+      messageIds.current.delete(optimisticId);
+      setMessages((prev) => {
+        if (prev.some((m) => m.id === result.messageId)) {
+          return prev.filter((m) => m.id !== optimisticId);
+        }
+        return prev.map((m) =>
           m.id === optimisticId ? { ...m, id: result.messageId, time: result.createdAt } : m
-        )
-      );
+        );
+      });
     } catch (e) {
       messageIds.current.delete(optimisticId);
       setMessages((prev) => prev.filter((m) => m.id !== optimisticId));
       setDraft(text);
       Alert.alert("Send failed", friendlyError(e));
     } finally {
+      sendingInFlightRef.current = false;
       setSending(false);
     }
   }

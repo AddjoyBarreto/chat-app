@@ -11,5 +11,5 @@
     "label": "Windows",
     "available": true
   },
-  "note": "Desktop builds are safe to download. They are not code-signed yet, so macOS Gatekeeper or Windows SmartScreen may show a warning — that is expected."
+  "note": "macOS unsigned build: if Gatekeeper says “damaged”, open Terminal after install and run: xattr -d com.apple.quarantine /Applications/VaultChat.app"
 }

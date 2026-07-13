@@ -3,7 +3,7 @@ import { fetchDmReadState, updateDmReadState } from "./api.js";
 
 const STORAGE_PREFIX = "vaultchat_read_";
 
-function storageKey(userId: string): string {
+export function readStateStorageKey(userId: string): string {
   return `${STORAGE_PREFIX}${userId}`;
 }
 
@@ -26,7 +26,7 @@ export class ReadStateManager {
   async load(): Promise<void> {
     if (this.loaded) return;
     try {
-      const raw = await this.storage.getItem(storageKey(this.userId));
+      const raw = await this.storage.getItem(readStateStorageKey(this.userId));
       this.cache = raw ? (JSON.parse(raw) as Record<string, string>) : {};
     } catch {
       this.cache = {};
@@ -44,7 +44,7 @@ export class ReadStateManager {
           }
         }
         if (changed) {
-          await this.storage.setItem(storageKey(this.userId), JSON.stringify(this.cache));
+          await this.storage.setItem(readStateStorageKey(this.userId), JSON.stringify(this.cache));
         }
       } catch {
         // non-fatal — local state still works offline
@@ -59,7 +59,7 @@ export class ReadStateManager {
     const prev = this.cache[peerId];
     if (!prev || new Date(messageAt) > new Date(prev)) {
       this.cache[peerId] = messageAt;
-      void this.storage.setItem(storageKey(this.userId), JSON.stringify(this.cache));
+      void this.storage.setItem(readStateStorageKey(this.userId), JSON.stringify(this.cache));
       if (this.options.token) {
         void updateDmReadState(this.options.token, peerId, messageAt).catch(() => {});
       }
@@ -75,6 +75,6 @@ export class ReadStateManager {
   async clear(): Promise<void> {
     this.cache = {};
     this.loaded = true;
-    await this.storage.removeItem(storageKey(this.userId));
+    await this.storage.removeItem(readStateStorageKey(this.userId));
   }
 }

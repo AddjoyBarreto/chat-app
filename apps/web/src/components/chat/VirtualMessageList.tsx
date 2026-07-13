@@ -36,7 +36,8 @@ export function VirtualMessageList({
     const groups = groupByDate(messages);
     const flat: ListItem[] = [];
     for (const g of groups) {
-      flat.push({ kind: "date", id: `date-${g.date}`, label: g.date });
+      const anchorId = g.messages[0]?.id ?? g.date;
+      flat.push({ kind: "date", id: `date-${anchorId}`, label: g.date });
       for (const m of g.messages) {
         flat.push({ kind: "message", id: m.id, message: m });
       }

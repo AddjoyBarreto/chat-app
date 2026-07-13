@@ -1,7 +1,12 @@
 import type { StorageAdapter } from "./storage.js";
 import type { CachedDisplayMessage } from "./message-cache.js";
 import { readSealedItem, writeSealedItem } from "./local-vault.js";
-import { dedupeMessages, sortMessages, type DisplayMessage } from "./messages.js";
+import {
+  dedupeMessages,
+  formatMessageDate,
+  sortMessages,
+  type DisplayMessage,
+} from "./messages.js";
 
 const TIMELINE_KEY_PREFIX = "vaultchat_timeline_";
 const TIMELINE_INDEX_PREFIX = "vaultchat_timeline_peers_";
@@ -113,7 +118,10 @@ export async function loadConversationTimeline(
     entry = await migrateLegacyIfNeeded(storage, userId, peerId);
   }
   if (!entry?.messages?.length) return [];
-  return sortMessages(entry.messages as DisplayMessage[]);
+  return sortMessages(entry.messages as DisplayMessage[]).map((m) => ({
+    ...m,
+    date: formatMessageDate(m.time),
+  }));
 }
 
 export async function saveConversationTimeline(

@@ -106,6 +106,7 @@ export function GroupServerView({
   const [createdBy, setCreatedBy] = useState<string | null>(null);
   const messageIdsRef = useRef(new Set<string>());
   const activeChannelRef = useRef<ChannelInfo | null>(null);
+  const sendingInFlightRef = useRef(false);
   activeChannelRef.current = activeChannel;
 
   const me = members.find((m) => m.userId === userId);
@@ -318,21 +319,26 @@ export function GroupServerView({
         void (async () => {
           const msg = await decryptChannelEnvelope(storage, groupId, event.envelope, userId);
           if (messageIdsRef.current.has(msg.id)) return;
-          messageIdsRef.current.add(msg.id);
           const author =
             members.find((m) => m.userId === event.envelope.senderId)?.username ??
             event.envelope.senderId.slice(0, 8);
-          setMessages((prev) => [
-            ...prev,
-            {
-              id: msg.id,
-              from: msg.from,
-              username: msg.from === "me" ? username : author,
-              text: msg.text,
-              time: msg.time,
-              failed: msg.failed,
-            },
-          ]);
+          setMessages((prev) => {
+            if (messageIdsRef.current.has(msg.id) || prev.some((m) => m.id === msg.id)) {
+              return prev;
+            }
+            messageIdsRef.current.add(msg.id);
+            return [
+              ...prev,
+              {
+                id: msg.id,
+                from: msg.from,
+                username: msg.from === "me" ? username : author,
+                text: msg.text,
+                time: msg.time,
+                failed: msg.failed,
+              },
+            ];
+          });
         })();
       }
       if (
@@ -343,21 +349,26 @@ export function GroupServerView({
         void (async () => {
           const msg = await decryptGroupEnvelope(storage, groupId, event.envelope, userId);
           if (messageIdsRef.current.has(msg.id)) return;
-          messageIdsRef.current.add(msg.id);
           const author =
             members.find((m) => m.userId === event.envelope.senderId)?.username ??
             event.envelope.senderId.slice(0, 8);
-          setMessages((prev) => [
-            ...prev,
-            {
-              id: msg.id,
-              from: msg.from,
-              username: msg.from === "me" ? username : author,
-              text: msg.text,
-              time: msg.time,
-              failed: msg.failed,
-            },
-          ]);
+          setMessages((prev) => {
+            if (messageIdsRef.current.has(msg.id) || prev.some((m) => m.id === msg.id)) {
+              return prev;
+            }
+            messageIdsRef.current.add(msg.id);
+            return [
+              ...prev,
+              {
+                id: msg.id,
+                from: msg.from,
+                username: msg.from === "me" ? username : author,
+                text: msg.text,
+                time: msg.time,
+                failed: msg.failed,
+              },
+            ];
+          });
         })();
       }
       if (
@@ -375,9 +386,19 @@ export function GroupServerView({
   }, [onServerEventRef, groupId, storage, userId, username, members, activeChannel]);
 
   async function handleSend() {
-    if (!draft.trim() || !hasGroupKey || !activeChannel || activeChannel.type !== "text") return;
+    if (
+      sendingInFlightRef.current ||
+      sending ||
+      !draft.trim() ||
+      !hasGroupKey ||
+      !activeChannel ||
+      activeChannel.type !== "text"
+    ) {
+      return;
+    }
     const text = draft.trim();
     const channelId = activeChannel.id;
+    sendingInFlightRef.current = true;
     setSending(true);
     setDraft("");
     const optimisticId = crypto.randomUUID();
@@ -396,19 +417,24 @@ export function GroupServerView({
         { type: "text", text },
         "text"
       );
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.id === optimisticId ? { ...m, id: result.messageId, time: result.createdAt } : m
-        )
-      );
-      messageIdsRef.current.delete(optimisticId);
+      // Register server id before reconcile so a late WS echo can't append a second copy.
       messageIdsRef.current.add(result.messageId);
+      messageIdsRef.current.delete(optimisticId);
+      setMessages((prev) => {
+        if (prev.some((m) => m.id === result.messageId)) {
+          return prev.filter((m) => m.id !== optimisticId);
+        }
+        return prev.map((m) =>
+          m.id === optimisticId ? { ...m, id: result.messageId, time: result.createdAt } : m
+        );
+      });
     } catch (e) {
       messageIdsRef.current.delete(optimisticId);
       setMessages((prev) => prev.filter((m) => m.id !== optimisticId));
       setDraft(text);
       setError(friendlyError(e));
     } finally {
+      sendingInFlightRef.current = false;
       setSending(false);
     }
   }

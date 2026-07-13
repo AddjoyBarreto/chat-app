@@ -15,3 +15,25 @@ Place release binaries here before deploying the web app. They are served as sta
 ## Safety
 
 There is no public upload API. Only operators who can write to this folder (or the deploy pipeline) can change installers. Users download over HTTPS from the same origin.
+
+## macOS “damaged” dialog
+
+The DMG from CI is unsigned unless Apple signing secrets are configured. Gatekeeper may block the download or the installed app. User fix (after dragging VaultChat to **Applications**):
+
+```bash
+xattr -d com.apple.quarantine /Applications/VaultChat.app
+```
+
+If the **.dmg** will not open:
+
+```bash
+xattr -d com.apple.quarantine ~/Downloads/VaultChat.dmg
+```
+
+Fallback if the app still refuses to open:
+
+```bash
+xattr -cr /Applications/VaultChat.app
+```
+
+See `apps/desktop/README.md` for notarization setup.

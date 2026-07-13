@@ -25,7 +25,7 @@ export async function persistDevice(
 }
 
 export async function clearSession(storage: StorageAdapter): Promise<void> {
-  // Sign out only — keep per-user E2EE keys and decrypted message cache for re-login.
+  // Remove the active session pointer only. Per-user keys/cache are cleared via clearLocalChatData.
   await storage.removeItem(STORAGE_KEY);
 }
 

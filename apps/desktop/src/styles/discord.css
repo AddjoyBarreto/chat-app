@@ -703,6 +703,35 @@ textarea {
   flex: 1;
   min-height: 0;
   padding: 8px 16px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.dc-chat__virtuoso {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+}
+
+.dc-chat__virtuoso [data-virtuoso-scroller] {
+  overflow-x: hidden !important;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--dc-text-muted) 55%, transparent) transparent;
+}
+
+.dc-chat__virtuoso [data-virtuoso-scroller]::-webkit-scrollbar {
+  width: 8px;
+  height: 0;
+}
+
+.dc-chat__virtuoso [data-virtuoso-scroller]::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--dc-text-muted) 45%, transparent);
+  border-radius: 999px;
+}
+
+.dc-chat__virtuoso [data-virtuoso-scroller]::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 .dc-chat__load-older {
@@ -1019,6 +1048,10 @@ textarea {
   background: transparent;
   color: var(--dc-text);
   font-size: 0.9375rem;
+  resize: none;
+  min-width: 0;
+  overflow-x: hidden;
+  word-break: break-word;
   outline: none;
 }
 

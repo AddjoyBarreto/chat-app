@@ -327,9 +327,11 @@ export function groupByDate(
   const groups: { date: string; messages: DisplayMessage[] }[] = [];
   let current: { date: string; messages: DisplayMessage[] } | null = null;
 
-  for (const msg of messages) {
-    if (!current || current.date !== msg.date) {
-      current = { date: msg.date, messages: [] };
+  // Derive labels from timestamps — cached `msg.date` strings go stale overnight.
+  for (const msg of sortMessages(messages)) {
+    const date = formatMessageDate(msg.time);
+    if (!current || current.date !== date) {
+      current = { date, messages: [] };
       groups.push(current);
     }
     current.messages.push(msg);

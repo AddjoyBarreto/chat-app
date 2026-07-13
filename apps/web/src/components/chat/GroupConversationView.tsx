@@ -150,7 +150,7 @@ export function GroupConversationView({
           </div>
         ) : (
           groups.map((g) => (
-            <div key={g.date}>
+            <div key={g.messages[0]?.id ?? g.date}>
               <div className="vc-date-divider">
                 <span className="vc-date-divider__pill">{g.date}</span>
               </div>

@@ -12,13 +12,24 @@
     },
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.vaultchat.app"
+      "bundleIdentifier": "com.vaultchat.app",
+      "infoPlist": {
+        "NSCameraUsageDescription": "VaultChat needs camera access for video calls.",
+        "NSMicrophoneUsageDescription": "VaultChat needs microphone access for voice and video calls."
+      }
     },
     "android": {
       "adaptiveIcon": {
         "backgroundColor": "#0b141a"
       },
-      "package": "com.vaultchat.app"
+      "package": "com.vaultchat.app",
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.BLUETOOTH",
+        "android.permission.BLUETOOTH_CONNECT"
+      ]
     },
     "plugins": [
       "expo-router",

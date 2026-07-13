@@ -12,6 +12,7 @@ import {
   IconPlus,
   IconSettings,
 } from "./CommunityIcons.js";
+import { OverlayPortal } from "./OverlayPortal.js";
 
 export interface CommunityChannelSidebarProps {
   communityName: string;
@@ -194,85 +195,97 @@ export function CommunityChannelSidebar({
   function renderServerMenu() {
     if (!serverMenuOpen || !serverMenuPos) return null;
 
+    const hasItems =
+      Boolean(isAdmin && onOpenServerSettings) ||
+      Boolean(isAdmin && onCreateChannel) ||
+      Boolean(isAdmin && onCreateCategory);
+
     return (
-      <div
-        ref={serverMenuRef}
-        className="vc-server-menu vc-server-menu--portal"
-        style={{
-          position: "fixed",
-          top: serverMenuPos.top,
-          left: serverMenuPos.left,
-          width: serverMenuPos.width,
-        }}
-        role="menu"
-      >
-        {isAdmin && onOpenServerSettings && (
-          <button
-            type="button"
-            className="vc-server-menu__item"
-            role="menuitem"
-            onClick={() => {
-              closeMenus();
-              onOpenServerSettings("overview");
-            }}
-          >
-            <span>Server Settings</span>
-            <span className="vc-server-menu__icon" aria-hidden>
-              <IconSettings size={16} />
-            </span>
-          </button>
-        )}
-        {isAdmin && onCreateChannel && (
-          <>
+      <OverlayPortal>
+        <div
+          ref={serverMenuRef}
+          className="vc-server-menu vc-server-menu--portal"
+          style={{
+            position: "fixed",
+            top: serverMenuPos.top,
+            left: serverMenuPos.left,
+            width: serverMenuPos.width,
+          }}
+          role="menu"
+        >
+          {isAdmin && onOpenServerSettings && (
             <button
               type="button"
               className="vc-server-menu__item"
               role="menuitem"
               onClick={() => {
                 closeMenus();
-                onCreateChannel(firstTextCategoryId(), "text");
+                onOpenServerSettings("overview");
               }}
             >
-              <span>Create Channel</span>
+              <span>Server Settings</span>
               <span className="vc-server-menu__icon" aria-hidden>
-                <IconPlus size={16} />
+                <IconSettings size={16} />
               </span>
             </button>
-            {onCreateCategory && (
+          )}
+          {isAdmin && onCreateChannel && (
+            <>
               <button
                 type="button"
                 className="vc-server-menu__item"
                 role="menuitem"
                 onClick={() => {
                   closeMenus();
-                  onCreateCategory();
+                  onCreateChannel(firstTextCategoryId(), "text");
                 }}
               >
-                <span>Create Category</span>
+                <span>Create Channel</span>
                 <span className="vc-server-menu__icon" aria-hidden>
-                  <IconFolder size={16} />
+                  <IconPlus size={16} />
                 </span>
               </button>
-            )}
-          </>
-        )}
-        {isAdmin && onOpenServerSettings && (
-          <button
-            type="button"
-            className="vc-server-menu__item"
-            role="menuitem"
-            onClick={() => {
-              closeMenus();
-              onOpenServerSettings("invites");
-            }}
-          >
-            <span>Invite to Server</span>
-            <span className="vc-server-menu__icon" aria-hidden>
-              <IconInvite size={16} />
-            </span>
-          </button>
-        )}
-      </div>
+              {onCreateCategory && (
+                <button
+                  type="button"
+                  className="vc-server-menu__item"
+                  role="menuitem"
+                  onClick={() => {
+                    closeMenus();
+                    onCreateCategory();
+                  }}
+                >
+                  <span>Create Category</span>
+                  <span className="vc-server-menu__icon" aria-hidden>
+                    <IconFolder size={16} />
+                  </span>
+                </button>
+              )}
+            </>
+          )}
+          {isAdmin && onOpenServerSettings && (
+            <button
+              type="button"
+              className="vc-server-menu__item"
+              role="menuitem"
+              onClick={() => {
+                closeMenus();
+                onOpenServerSettings("invites");
+              }}
+            >
+              <span>Invite to Server</span>
+              <span className="vc-server-menu__icon" aria-hidden>
+                <IconInvite size={16} />
+              </span>
+            </button>
+          )}
+          {!hasItems && (
+            <div className="vc-server-menu__item vc-server-menu__item--muted" role="menuitem">
+              No admin actions available
+            </div>
+          )}
+        </div>
+      </OverlayPortal>
     );
   }
 
@@ -364,71 +377,73 @@ export function CommunityChannelSidebar({
       {renderServerMenu()}
 
       {contextMenu && (
-        <div
-          ref={contextMenuRef}
-          className="vc-channel-context-menu"
-          style={{ top: contextMenu.y, left: contextMenu.x }}
-          role="menu"
-        >
-          {isAdmin && onChannelSettings && (
-            <button
-              type="button"
-              className="vc-channel-context-menu__item"
-              role="menuitem"
-              onClick={() => {
-                const ch = contextMenu.channel;
-                closeMenus();
-                onChannelSettings(ch);
-              }}
-            >
-              Edit Channel
-            </button>
-          )}
-          {isAdmin && onCreateChannel && contextMenu.channel.categoryId && (
-            <button
-              type="button"
-              className="vc-channel-context-menu__item"
-              role="menuitem"
-              onClick={() => {
-                const ch = contextMenu.channel;
-                closeMenus();
-                onCreateChannel(ch.categoryId, ch.type === "voice" ? "voice" : "text");
-              }}
-            >
-              Create {contextMenu.channel.type === "voice" ? "Voice" : "Text"} Channel
-            </button>
-          )}
-          {isAdmin && onOpenServerSettings && (
-            <button
-              type="button"
-              className="vc-channel-context-menu__item"
-              role="menuitem"
-              onClick={() => {
-                closeMenus();
-                onOpenServerSettings("invites");
-              }}
-            >
-              Invite to Channel
-            </button>
-          )}
-          {isAdmin && onChannelDelete && (
-            <>
-              <div className="vc-channel-context-menu__sep" />
+        <OverlayPortal>
+          <div
+            ref={contextMenuRef}
+            className="vc-channel-context-menu"
+            style={{ top: contextMenu.y, left: contextMenu.x }}
+            role="menu"
+          >
+            {isAdmin && onChannelSettings && (
               <button
                 type="button"
-                className="vc-channel-context-menu__item vc-channel-context-menu__item--danger"
+                className="vc-channel-context-menu__item"
                 role="menuitem"
                 onClick={() => {
                   const ch = contextMenu.channel;
                   closeMenus();
-                  onChannelDelete(ch);
+                  onChannelSettings(ch);
                 }}
               >
-                Delete Channel
+                Edit Channel
               </button>
-            </>
-          )}
-        </div>
+            )}
+            {isAdmin && onCreateChannel && contextMenu.channel.categoryId && (
+              <button
+                type="button"
+                className="vc-channel-context-menu__item"
+                role="menuitem"
+                onClick={() => {
+                  const ch = contextMenu.channel;
+                  closeMenus();
+                  onCreateChannel(ch.categoryId, ch.type === "voice" ? "voice" : "text");
+                }}
+              >
+                Create {contextMenu.channel.type === "voice" ? "Voice" : "Text"} Channel
+              </button>
+            )}
+            {isAdmin && onOpenServerSettings && (
+              <button
+                type="button"
+                className="vc-channel-context-menu__item"
+                role="menuitem"
+                onClick={() => {
+                  closeMenus();
+                  onOpenServerSettings("invites");
+                }}
+              >
+                Invite to Channel
+              </button>
+            )}
+            {isAdmin && onChannelDelete && (
+              <>
+                <div className="vc-channel-context-menu__sep" />
+                <button
+                  type="button"
+                  className="vc-channel-context-menu__item vc-channel-context-menu__item--danger"
+                  role="menuitem"
+                  onClick={() => {
+                    const ch = contextMenu.channel;
+                    closeMenus();
+                    onChannelDelete(ch);
+                  }}
+                >
+                  Delete Channel
+                </button>
+              </>
+            )}
+          </div>
+        </OverlayPortal>
       )}
     </>
   );

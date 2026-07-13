@@ -44,7 +44,7 @@ export function friendlyError(err: unknown): string {
       return "Server is busy. Wait a few seconds and try again.";
     }
     if (err.status >= 500) {
-      return "Server error. If this keeps happening, restart the API (pnpm dev:stack).";
+      return "Server error. Try again in a moment. If this keeps happening, check API logs or run pending DB migrations.";
     }
     switch (err.code) {
       case "USERNAME_TAKEN":

@@ -134,9 +134,7 @@ export default function ProfileScreen() {
             <View style={styles.divider} />
             <InfoRow
               label="Phone"
-              value={
-                me ? formatPhone(me.phoneCountryCode, me.phoneNumber) : "—"
-              }
+              value={me ? formatPhone(me.phoneCountryCode, me.phoneNumber) : "—"}
             />
             <View style={styles.divider} />
             <InfoRow
@@ -198,16 +196,15 @@ const styles = StyleSheet.create({
     marginVertical: theme.spacing.md,
   },
   message: {
-    color: theme.accent,
-    textAlign: "center",
+    color: theme.textSecondary,
+    fontSize: theme.fontSize.sm,
     marginBottom: theme.spacing.md,
-    fontSize: theme.fontSize.md,
+    textAlign: "center",
   },
   footerNote: {
     color: theme.textMuted,
     fontSize: theme.fontSize.sm,
     textAlign: "center",
-    lineHeight: 20,
-    paddingHorizontal: theme.spacing.lg,
+    lineHeight: 18,
   },
 });

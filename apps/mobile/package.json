@@ -20,6 +20,7 @@
     "@vaultchat/protocol": "workspace:*",
     "buffer": "^6.0.3",
     "expo": "~52.0.47",
+    "expo-av": "~15.0.2",
     "expo-constants": "~17.0.8",
     "expo-image-picker": "~16.0.6",
     "expo-linking": "~7.0.5",

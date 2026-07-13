@@ -1,19 +1,42 @@
 import { useCallSession, useFriends, useVaultChat } from "@vaultchat/chat-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import type { CallType } from "@vaultchat/protocol";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DiscordLayout } from "./components/DiscordLayout";
 import { AuthPanel } from "./components/AuthPanel";
-import { WelcomePanel } from "./components/WelcomePanel";
 import { ActiveCallOverlay } from "./components/ActiveCallOverlay";
 import { IncomingCallBanner } from "./components/IncomingCallBanner";
 import { SettingsPanel } from "./components/SettingsPanel";
+import { ensureDesktopCallPermissions, isMediaPermissionDeniedError, openSystemMediaSettings } from "./lib/mediaPermissions";
+import { MediaPermissionDialog } from "./components/MediaPermissionDialog";
 
 export function App() {
   const [toasts, setToasts] = useState<{ id: string; message: string; type: "info" | "error" }[]>([]);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [mediaPermissionKind, setMediaPermissionKind] = useState<"microphone" | "camera" | null>(
+    null
+  );
 
   const [authError, setAuthError] = useState<string | null>(null);
+  const lastToastRef = useRef<{ message: string; at: number } | null>(null);
 
   const showToast = useCallback((message: string, type: "info" | "error" = "info") => {
+    if (
+      type === "error" &&
+      /Microphone or camera access is required|not allowed by the user agent|permission denied/i.test(
+        message
+      )
+    ) {
+      setMediaPermissionKind(
+        /camera/i.test(message) && !/microphone or camera/i.test(message) ? "camera" : "microphone"
+      );
+      return;
+    }
+
+    const now = Date.now();
+    const last = lastToastRef.current;
+    if (last && last.message === message && now - last.at < 1500) return;
+    lastToastRef.current = { message, at: now };
+
     if (type === "error") setAuthError(message);
     const id = crypto.randomUUID();
     setToasts((prev) => [...prev, { id, message, type }]);
@@ -24,7 +47,9 @@ export function App() {
 
   const callsRef = useRef<ReturnType<typeof useCallSession> | null>(null);
   const friendsRef = useRef<ReturnType<typeof useFriends> | null>(null);
-  const groupServerEventRef = useRef<((event: import("@vaultchat/protocol").WsServerEvent) => void) | undefined>();
+  const groupServerEventRef = useRef<
+    ((event: import("@vaultchat/protocol").WsServerEvent) => void) | undefined
+  >();
 
   const chat = useVaultChat({
     deviceName: "Desktop",
@@ -52,10 +77,51 @@ export function App() {
     onToast: showToast,
   });
 
+  const startOutgoing = useCallback(
+    async (calleeId: string, type: CallType) => {
+      try {
+        await ensureDesktopCallPermissions(type);
+        await calls.startOutgoing(calleeId, type);
+      } catch (e) {
+        const denied = isMediaPermissionDeniedError(e);
+        if (denied) {
+          setMediaPermissionKind(denied);
+          return;
+        }
+        showToast(e instanceof Error ? e.message : String(e), "error");
+      }
+    },
+    [calls, showToast]
+  );
+
+  const acceptIncoming = useCallback(async () => {
+    const type = calls.incomingCall?.callType ?? "voice";
+    try {
+      await ensureDesktopCallPermissions(type);
+      await calls.acceptIncoming();
+    } catch (e) {
+      const denied = isMediaPermissionDeniedError(e);
+      if (denied) {
+        setMediaPermissionKind(denied);
+        return;
+      }
+      showToast(e instanceof Error ? e.message : String(e), "error");
+    }
+  }, [calls, showToast]);
+
+  const callsWithPermissions = useMemo(
+    () => ({
+      ...calls,
+      startOutgoing,
+      acceptIncoming,
+    }),
+    [calls, startOutgoing, acceptIncoming]
+  );
+
   useEffect(() => {
-    callsRef.current = calls;
+    callsRef.current = callsWithPermissions;
     friendsRef.current = friends;
-  }, [calls, friends]);
+  }, [callsWithPermissions, friends]);
 
   if (!chat.ready) {
     return (
@@ -101,7 +167,7 @@ export function App() {
       <DiscordLayout
         chat={chat}
         friends={friends}
-        calls={calls}
+        calls={callsWithPermissions}
         onOpenSettings={() => setSettingsOpen(true)}
         groupServerEventRef={groupServerEventRef}
       />
@@ -110,7 +176,7 @@ export function App() {
         <IncomingCallBanner
           callerUsername={calls.incomingCall.callerUsername}
           callType={calls.incomingCall.callType}
-          onAccept={() => void calls.acceptIncoming()}
+          onAccept={() => void acceptIncoming()}
           onReject={calls.rejectIncoming}
         />
       )}
@@ -139,6 +205,17 @@ export function App() {
           void chat.logout();
         }}
       />
+
+      {mediaPermissionKind && (
+        <MediaPermissionDialog
+          kind={mediaPermissionKind}
+          onDismiss={() => setMediaPermissionKind(null)}
+          onOpenSettings={() => {
+            void openSystemMediaSettings(mediaPermissionKind);
+            setMediaPermissionKind(null);
+          }}
+        />
+      )}
 
       <ToastStack toasts={toasts} />
     </>

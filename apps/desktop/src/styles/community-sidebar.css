@@ -118,6 +118,17 @@
   color: #fff;
 }
 
+.vc-server-menu__item--muted {
+  color: #6d6f78;
+  cursor: default;
+  pointer-events: none;
+}
+
+.vc-server-menu__item--muted:hover {
+  background: transparent;
+  color: #6d6f78;
+}
+
 .vc-server-menu__icon {
   display: flex;
   align-items: center;

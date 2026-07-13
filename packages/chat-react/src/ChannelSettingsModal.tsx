@@ -9,6 +9,7 @@ import {
 import type { ChannelInfo, GroupMemberInfo } from "@vaultchat/protocol";
 import { useCallback, useEffect, useState } from "react";
 import { ChannelTypeIcon, IconClose, IconTrash } from "./CommunityIcons.js";
+import { OverlayPortal } from "./OverlayPortal.js";
 
 type SettingsTab = "overview" | "permissions";
 
@@ -145,15 +146,16 @@ export function ChannelSettingsModal({
     channel.type === "voice" ? "VOICE CHANNELS" : "TEXT CHANNELS";
 
   return (
-    <div
-      className="vc-community-settings-overlay"
-      role="dialog"
-      aria-modal
-      aria-label="Channel settings"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
-    >
+    <OverlayPortal>
+      <div
+        className="vc-community-settings-overlay"
+        role="dialog"
+        aria-modal
+        aria-label="Channel settings"
+        onClick={(e) => {
+          if (e.target === e.currentTarget) onClose();
+        }}
+      >
       <div className="vc-channel-settings">
         <nav className="vc-channel-settings__nav" aria-label="Channel settings navigation">
           <div className="vc-channel-settings__nav-header">
@@ -406,5 +408,6 @@ export function ChannelSettingsModal({
         </div>
       </div>
     </div>
+    </OverlayPortal>
   );
 }

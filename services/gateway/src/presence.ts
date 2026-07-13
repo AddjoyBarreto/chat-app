@@ -15,8 +15,7 @@ type SendToUser = (targetUserId: string, event: WsServerEvent) => boolean;
 type ClientsByUser = Map<string, Set<WebSocket>>;
 
 function isUserOnline(clientsByUser: ClientsByUser, userId: string): boolean {
-  const set = clientsByUser.get(userId);
-  return Boolean(set && set.size > 0);
+  return hasOpenSocket(clientsByUser, userId);
 }
 
 async function loadPresence(redis: Redis, userId: string): Promise<PresenceStatus> {
@@ -30,6 +29,25 @@ async function loadPresence(redis: Redis, userId: string): Promise<PresenceStatu
 
 async function savePresence(redis: Redis, userId: string, status: PresenceStatus): Promise<void> {
   await redis.set(presenceRedisKey(userId), status, "EX", PRESENCE_TTL_SEC);
+}
+
+/** Keep presence alive while the client is heartbeating. */
+export async function touchPresence(redis: Redis, userId: string): Promise<void> {
+  const key = presenceRedisKey(userId);
+  const updated = await redis.expire(key, PRESENCE_TTL_SEC);
+  if (updated === 0) {
+    // Key expired while the socket was still up — restore a connected status.
+    await redis.set(key, "online", "EX", PRESENCE_TTL_SEC);
+  }
+}
+
+function hasOpenSocket(clientsByUser: ClientsByUser, userId: string): boolean {
+  const set = clientsByUser.get(userId);
+  if (!set || set.size === 0) return false;
+  for (const ws of set) {
+    if (ws.readyState === ws.OPEN) return true;
+  }
+  return false;
 }
 
 /** Friends + shared group/community members — everyone who should see your status. */

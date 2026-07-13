@@ -10,10 +10,18 @@ import Redis from "ioredis";
 import { WebSocketServer, type WebSocket } from "ws";
 import { cleanupCallsForUser, handleCallEvent } from "./calls.js";
 import { gatewayEnv } from "./env.js";
-import { handleUserConnected, handleUserDisconnected, handlePresenceSet } from "./presence.js";
+import {
+  handleUserConnected,
+  handleUserDisconnected,
+  handlePresenceSet,
+  touchPresence,
+} from "./presence.js";
 
 const { port: PORT, redisUrl: REDIS_URL, jwtSecret: JWT_SECRET, databaseUrl: DATABASE_URL } =
   gatewayEnv;
+
+/** Allow brief WS drops / reconnects without ending calls or flipping offline. */
+const DISCONNECT_GRACE_MS = 8_000;
 
 const apiCtx = createApiContext({
   databaseUrl: DATABASE_URL,
@@ -30,6 +38,7 @@ const redisSub = new Redis(REDIS_URL);
 const redis = new Redis(REDIS_URL);
 
 const clientsByUser = new Map<string, Set<AuthenticatedSocket>>();
+const pendingDisconnects = new Map<string, ReturnType<typeof setTimeout>>();
 
 function send(ws: WebSocket, event: WsServerEvent) {
   if (ws.readyState === ws.OPEN) {
@@ -40,8 +49,14 @@ function send(ws: WebSocket, event: WsServerEvent) {
 function sendToUser(targetUserId: string, event: WsServerEvent): boolean {
   const set = clientsByUser.get(targetUserId);
   if (!set || set.size === 0) return false;
-  for (const ws of set) send(ws, event);
-  return true;
+  let delivered = false;
+  for (const ws of set) {
+    if (ws.readyState === ws.OPEN) {
+      ws.send(JSON.stringify(event));
+      delivered = true;
+    }
+  }
+  return delivered;
 }
 
 function addClient(userId: string, ws: AuthenticatedSocket) {
@@ -62,6 +77,26 @@ function removeClient(userId: string, ws: AuthenticatedSocket) {
     clientsByUser.delete(userId);
     void redisSub.unsubscribe(`${MESSAGE_CHANNEL_PREFIX}${userId}`);
   }
+}
+
+function cancelPendingDisconnect(userId: string) {
+  const timer = pendingDisconnects.get(userId);
+  if (!timer) return;
+  clearTimeout(timer);
+  pendingDisconnects.delete(userId);
+}
+
+function scheduleUserGone(userId: string) {
+  cancelPendingDisconnect(userId);
+  pendingDisconnects.set(
+    userId,
+    setTimeout(() => {
+      pendingDisconnects.delete(userId);
+      if (clientsByUser.has(userId)) return;
+      void cleanupCallsForUser(redis, userId, sendToUser);
+      void handleUserDisconnected(apiCtx, redis, userId, clientsByUser, sendToUser);
+    }, DISCONNECT_GRACE_MS)
+  );
 }
 
 redisSub.on("message", (channel, payload) => {
@@ -98,6 +133,9 @@ wss.on("connection", (ws: AuthenticatedSocket) => {
 
       if (event.type === "ping") {
         send(ws, { type: "pong" });
+        if (ws.userId) {
+          void touchPresence(redis, ws.userId);
+        }
         return;
       }
 
@@ -105,6 +143,7 @@ wss.on("connection", (ws: AuthenticatedSocket) => {
         try {
           const claims = await verifyToken(JWT_SECRET, event.token);
           ws.userId = claims.sub;
+          cancelPendingDisconnect(claims.sub);
           addClient(claims.sub, ws);
           send(ws, { type: "auth_ok", userId: claims.sub });
           await handleUserConnected(apiCtx, redis, claims.sub, ws, clientsByUser, send, sendToUser);
@@ -150,9 +189,11 @@ wss.on("connection", (ws: AuthenticatedSocket) => {
   ws.on("close", () => {
     if (ws.userId) {
       const userId = ws.userId;
-      void cleanupCallsForUser(redis, userId, sendToUser);
       removeClient(userId, ws);
-      void handleUserDisconnected(apiCtx, redis, userId, clientsByUser, sendToUser);
+      // Only mark gone (and end calls) after the last socket stays down past the grace window.
+      if (!clientsByUser.has(userId)) {
+        scheduleUserGone(userId);
+      }
     }
   });
 });

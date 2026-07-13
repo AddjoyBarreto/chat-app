@@ -1,6 +1,7 @@
 export { useGateway, type ConnectionState } from "./useGateway.js";
 export { useVaultChat, type UseVaultChatOptions, type VaultChatPeer } from "./useVaultChat.js";
 export { useCallSession, type UseCallSessionOptions } from "./useCallSession.js";
+export { useCallRingtone } from "./useCallRingtone.js";
 export { useFriends, type UseFriendsOptions } from "./useFriends.js";
 export { PresenceDot, PresencePicker } from "./PresenceUI.js";
 export { CreateChannelModal } from "./CreateChannelModal.js";
@@ -31,6 +32,12 @@ export {
   IconSettings,
   IconTrash,
   IconVoice,
+  IconPhone,
+  IconPhoneHangup,
+  IconMic,
+  IconMicOff,
+  IconVideo,
+  IconVideoOff,
 } from "./CommunityIcons.js";
 export { MarkdownText } from "./MarkdownText.js";
 export { MarkdownComposerField } from "./MarkdownComposerField.js";

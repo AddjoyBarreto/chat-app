@@ -1,5 +1,12 @@
 "use client";
 
+import {
+  IconMic,
+  IconMicOff,
+  IconPhoneHangup,
+  IconVideo,
+  IconVideoOff,
+} from "@vaultchat/chat-react";
 import type { CallPhase } from "@vaultchat/client";
 import type { CallType } from "@vaultchat/protocol";
 import { useEffect, useRef, useState } from "react";
@@ -30,6 +37,7 @@ export function ActiveCallOverlay({
   const remoteAudioRef = useRef<HTMLAudioElement>(null);
   const [muted, setMuted] = useState(false);
   const [cameraOff, setCameraOff] = useState(false);
+  const [elapsed, setElapsed] = useState(0);
 
   useEffect(() => {
     if (localRef.current) localRef.current.srcObject = localStream;
@@ -40,6 +48,18 @@ export function ActiveCallOverlay({
     if (remoteAudioRef.current) remoteAudioRef.current.srcObject = remoteStream;
   }, [remoteStream]);
 
+  useEffect(() => {
+    if (phase !== "active") {
+      setElapsed(0);
+      return;
+    }
+    const started = Date.now();
+    const id = window.setInterval(() => {
+      setElapsed(Math.floor((Date.now() - started) / 1000));
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, [phase]);
+
   const status =
     phase === "outgoing"
       ? "Calling…"
@@ -47,9 +67,10 @@ export function ActiveCallOverlay({
         ? "Incoming…"
         : phase === "connecting"
           ? "Connecting…"
-          : "Connected";
+          : formatElapsed(elapsed);
 
   const isVideo = callType === "video";
+  const initial = peerUsername[0]?.toUpperCase() ?? "?";
 
   return (
     <div className={`vc-call-overlay${isVideo ? "" : " vc-call-overlay--voice"}`}>
@@ -68,6 +89,13 @@ export function ActiveCallOverlay({
             playsInline
             muted
           />
+          {!remoteStream && (
+            <div className="vc-call-overlay__waiting">
+              <div className="vc-call-overlay__avatar vc-call-overlay__avatar--pulse">
+                {initial}
+              </div>
+            </div>
+          )}
         </>
       ) : (
         <audio ref={remoteAudioRef} autoPlay playsInline className="vc-call-overlay__audio" />
@@ -76,7 +104,7 @@ export function ActiveCallOverlay({
       <div className={`vc-call-overlay__panel${isVideo ? " vc-call-overlay__panel--video" : ""}`}>
         {!isVideo && (
           <div className="vc-call-overlay__avatar vc-call-overlay__avatar--pulse">
-            {peerUsername[0]}
+            {initial}
           </div>
         )}
         <p className="vc-call-overlay__name">@{peerUsername}</p>
@@ -91,7 +119,7 @@ export function ActiveCallOverlay({
               aria-label={muted ? "Unmute" : "Mute"}
               title={muted ? "Unmute" : "Mute"}
             >
-              {muted ? "🔇" : "🎤"}
+              {muted ? <IconMicOff size={22} /> : <IconMic size={22} />}
             </button>
           )}
           {isVideo && onToggleCamera && (
@@ -102,7 +130,7 @@ export function ActiveCallOverlay({
               aria-label={cameraOff ? "Turn camera on" : "Turn camera off"}
               title={cameraOff ? "Turn camera on" : "Turn camera off"}
             >
-              {cameraOff ? "📷" : "📹"}
+              {cameraOff ? <IconVideoOff size={22} /> : <IconVideo size={22} />}
             </button>
           )}
           <button
@@ -112,10 +140,16 @@ export function ActiveCallOverlay({
             aria-label="End call"
             title="End call"
           >
-            ✕
+            <IconPhoneHangup size={26} />
           </button>
         </div>
       </div>
     </div>
   );
+}
+
+function formatElapsed(totalSeconds: number): string {
+  const m = Math.floor(totalSeconds / 60);
+  const s = totalSeconds % 60;
+  return `${m}:${s.toString().padStart(2, "0")}`;
 }

@@ -10,6 +10,7 @@ import {
   loadChannelHistory,
   loadGroupCipher,
   reshareGroupKey,
+  resetGroupEncryptionKey,
   saveGroupKey,
   sendChannelContentMessage,
   sendGroupContentMessage,
@@ -183,6 +184,15 @@ export async function adminReshareGroupKey(
   groupId: string
 ) {
   return reshareGroupKey(storage, token, device, userId, groupId);
+}
+
+export async function adminResetGroupEncryptionKey(
+  token: string,
+  device: VaultDevice,
+  userId: string,
+  groupId: string
+) {
+  return resetGroupEncryptionKey(storage, token, device, userId, groupId);
 }
 
 function toDisplayMessage(msg: Awaited<ReturnType<typeof decryptGroupEnvelope>>): GroupDisplayMessage {

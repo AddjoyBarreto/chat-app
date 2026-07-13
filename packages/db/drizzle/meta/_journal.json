@@ -71,6 +71,13 @@
       "when": 1781298000000,
       "tag": "0009_channel_privacy",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1783968000000,
+      "tag": "0010_push_tokens_ensure",
+      "breakpoints": true
     }
   ]
 }

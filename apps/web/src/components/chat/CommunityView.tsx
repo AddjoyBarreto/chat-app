@@ -46,6 +46,7 @@ interface CommunityMessage {
   username: string;
   text: string;
   time: string;
+  senderId?: string;
   failed?: boolean;
 }
 
@@ -64,6 +65,7 @@ export function CommunityView({
   onBack,
   onCommunityUpdated,
   onReshareKey,
+  onResetEncryptionKey,
   onShareKeyWithMember,
   resharing,
   onRefreshChannels,
@@ -84,6 +86,7 @@ export function CommunityView({
   onBack: () => void;
   onCommunityUpdated?: (patch: { name?: string; description?: string }) => void;
   onReshareKey: () => Promise<void>;
+  onResetEncryptionKey?: () => Promise<void>;
   onShareKeyWithMember: (targetUserId: string) => Promise<void>;
   resharing?: boolean;
   onRefreshChannels?: () => Promise<void>;
@@ -124,6 +127,8 @@ export function CommunityView({
 
   const friendIds = useMemo(() => new Set(friends.map((f) => f.userId)), [friends]);
   const isOwner = createdBy !== null && createdBy === userId;
+  const isAdminEffective =
+    isAdmin || isOwner || members.some((m) => m.userId === userId && m.role === "admin");
 
   function openMemberProfile(m: GroupMemberInfo, e: MouseEvent) {
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
@@ -168,6 +173,7 @@ export function CommunityView({
           m.from === "me" ? username : (m.senderId && memberMap.get(m.senderId)) || "Member",
         text: m.text,
         time: m.time,
+        senderId: m.from === "me" ? userId : m.senderId,
         failed: m.failed,
       }));
       messageIdsRef.current = new Set(next.map((m) => m.id));
@@ -200,6 +206,7 @@ export function CommunityView({
             m.from === "me" ? username : (m.senderId && memberMap.get(m.senderId)) || "Member",
           text: m.text,
           time: m.time,
+          senderId: m.from === "me" ? userId : m.senderId,
           failed: m.failed,
         });
       }
@@ -368,6 +375,7 @@ export function CommunityView({
                 username: msg.from === "me" ? username : author,
                 text: msg.text,
                 time: msg.time,
+                senderId: msg.from === "me" ? userId : event.envelope.senderId,
                 failed: msg.failed,
               },
             ];
@@ -395,6 +403,7 @@ export function CommunityView({
                 username: msg.from === "me" ? username : author,
                 text: msg.text,
                 time: msg.time,
+                senderId: msg.from === "me" ? userId : event.envelope.senderId,
                 failed: msg.failed,
               },
             ];
@@ -435,6 +444,7 @@ export function CommunityView({
       username,
       text,
       time: new Date().toISOString(),
+      senderId: userId,
     };
     messageIdsRef.current.add(optimisticId);
     setMessages((prev) => [...prev, optimistic]);
@@ -472,6 +482,21 @@ export function CommunityView({
     }
   }
 
+  async function handleResetEncryptionKey() {
+    if (!onResetEncryptionKey) return;
+    setError(null);
+    try {
+      await onResetEncryptionKey();
+      await refreshAccess();
+      const channel = activeChannelRef.current;
+      if (channel?.type === "text") {
+        await loadMessages(channel.id);
+      }
+    } catch (e) {
+      setError(friendlyError(e));
+    }
+  }
+
   if (loading) {
     return (
       <div className="vc-community-layout">
@@ -490,20 +515,20 @@ export function CommunityView({
         categories={localCategories}
         channels={localChannels}
         activeChannelId={activeChannel?.id}
-        isAdmin={isAdmin}
+        isAdmin={isAdminEffective}
         onOpenServerSettings={(tab) => {
           setSettingsTab(tab ?? "overview");
           setSettingsOpen(true);
         }}
-        onCreateCategory={isAdmin ? () => void handleCreateCategory() : undefined}
+        onCreateCategory={isAdminEffective ? () => void handleCreateCategory() : undefined}
         onCreateChannel={
-          isAdmin
+          isAdminEffective
             ? (categoryId, type) =>
                 setCreateChannel({ categoryId: categoryId || undefined, type })
             : undefined
         }
-        onChannelSettings={isAdmin ? (ch) => setChannelSettings(ch) : undefined}
-        onChannelDelete={isAdmin ? (ch) => void handleChannelDelete(ch) : undefined}
+        onChannelSettings={isAdminEffective ? (ch) => setChannelSettings(ch) : undefined}
+        onChannelDelete={isAdminEffective ? (ch) => void handleChannelDelete(ch) : undefined}
         onSelectChannel={(ch) => {
           setActiveChannel(ch);
           setError(null);
@@ -551,7 +576,7 @@ export function CommunityView({
               </span>
               <h1>{activeChannel.name}</h1>
               <span className="vc-community-channel-header__meta">End-to-end encrypted</span>
-              {isAdmin && hasGroupKey && (
+              {isAdminEffective && hasGroupKey && (
                 <button
                   type="button"
                   className="vc-community-channel-header__action"
@@ -569,21 +594,11 @@ export function CommunityView({
                 <div>
                   <strong>Missing encryption key</strong>
                   <p>
-                    {isAdmin
-                      ? "This device doesn't have the community key yet. Open Server Settings to re-share keys, or check your encrypted DMs."
+                    {isAdminEffective
+                      ? "This device doesn't have the community key. Open Server Settings → Encryption to generate a new key (existing messages stay locked)."
                       : "Ask a community admin to re-share the encryption key. You may receive it in your DMs."}
                   </p>
                 </div>
-                {isAdmin && hasGroupKey && (
-                  <button
-                    type="button"
-                    className="vc-btn vc-btn--secondary vc-banner__action"
-                    onClick={() => void handleReshare()}
-                    disabled={resharing}
-                  >
-                    {resharing ? "Sharing…" : "Re-share key"}
-                  </button>
-                )}
               </div>
             )}
 
@@ -609,25 +624,41 @@ export function CommunityView({
                         <div className="vc-community-messages__older">Loading older messages…</div>
                       ) : null,
                   }}
-                  itemContent={(_i, m) => (
-                    <div
-                      className={`vc-community-msg${m.from === "me" ? " vc-community-msg--me" : ""}${m.failed ? " vc-community-msg--failed" : ""}`}
-                    >
-                      <div className="vc-community-msg__avatar">{m.username[0]?.toUpperCase()}</div>
-                      <div className="vc-community-msg__body">
-                        <div className="vc-community-msg__meta">
-                          <strong>{m.username}</strong>
-                          <time>
-                            {new Date(m.time).toLocaleTimeString([], {
-                              hour: "2-digit",
-                              minute: "2-digit",
-                            })}
-                          </time>
+                  itemContent={(_i, m) => {
+                    const member =
+                      (m.senderId && members.find((x) => x.userId === m.senderId)) ||
+                      members.find((x) => x.username === m.username);
+                    return (
+                      <div
+                        className={`vc-community-msg${m.from === "me" ? " vc-community-msg--me" : ""}${m.failed ? " vc-community-msg--failed" : ""}`}
+                      >
+                        {member ? (
+                          <button
+                            type="button"
+                            className="vc-community-msg__avatar vc-community-msg__avatar--btn"
+                            onClick={(e) => openMemberProfile(member, e)}
+                            aria-label={`View @${m.username}`}
+                          >
+                            {m.username[0]?.toUpperCase()}
+                          </button>
+                        ) : (
+                          <div className="vc-community-msg__avatar">{m.username[0]?.toUpperCase()}</div>
+                        )}
+                        <div className="vc-community-msg__body">
+                          <div className="vc-community-msg__meta">
+                            <strong>{m.username}</strong>
+                            <time>
+                              {new Date(m.time).toLocaleTimeString([], {
+                                hour: "2-digit",
+                                minute: "2-digit",
+                              })}
+                            </time>
+                          </div>
+                          <MarkdownText text={m.text} className="vc-bubble__text" />
                         </div>
-                        <MarkdownText text={m.text} className="vc-bubble__text" />
                       </div>
-                    </div>
-                  )}
+                    );
+                  }}
                 />
               )}
             </div>
@@ -665,7 +696,7 @@ export function CommunityView({
       <aside className="vc-community-members" aria-label="Members">
         <div className="vc-community-members__header">
           <h3 className="vc-community-members__title">Members — {members.length}</h3>
-          {isAdmin && (
+          {isAdminEffective && (
             <div className="vc-community-members__actions">
               <button
                 type="button"
@@ -761,7 +792,7 @@ export function CommunityView({
           member={profileMember}
           status={getPresence(profileMember.userId)}
           isSelf={profileMember.userId === userId}
-          isViewerAdmin={isAdmin}
+          isViewerAdmin={isAdminEffective}
           isFriend={friendIds.has(profileMember.userId)}
           anchor={profileAnchor}
           onClose={() => {
@@ -784,7 +815,7 @@ export function CommunityView({
             setProfileMember(null);
           }}
           onKick={
-            isAdmin && profileMember.role !== "admin"
+            isAdminEffective && profileMember.role !== "admin"
               ? async () => {
                   if (!window.confirm(`Remove ${profileMember.username} from this server?`)) return;
                   await kickCommunityMember(token, communityId, profileMember.userId);
@@ -794,7 +825,7 @@ export function CommunityView({
               : undefined
           }
           onPromote={
-            isAdmin && profileMember.role !== "admin"
+            isAdminEffective && profileMember.role !== "admin"
               ? async () => {
                   await promoteCommunityMember(token, communityId, profileMember.userId);
                   setMembers((prev) =>
@@ -823,7 +854,7 @@ export function CommunityView({
               : undefined
           }
           onShareKey={
-            isAdmin
+            isAdminEffective
               ? async () => {
                   await onShareKeyWithMember(profileMember.userId);
                 }
@@ -839,10 +870,11 @@ export function CommunityView({
           communityDescription={displayDescription}
           token={token}
           userId={userId}
-          isAdmin={isAdmin}
+          isAdmin={isAdminEffective}
           isOwner={isOwner}
           friends={friends}
           resharing={resharing}
+          hasEncryptionKey={hasGroupKey}
           initialTab={settingsTab}
           onClose={() => setSettingsOpen(false)}
           onMembersChanged={async () => {
@@ -859,11 +891,12 @@ export function CommunityView({
             onCommunityUpdated?.(patch);
           }}
           onReshareKey={handleReshare}
+          onResetEncryptionKey={onResetEncryptionKey ? handleResetEncryptionKey : undefined}
           onShareKeyWithMember={onShareKeyWithMember}
         />
       )}
 
-      {createChannel && isAdmin && (
+      {createChannel && isAdminEffective && (
         <CreateChannelModal
           token={token}
           communityId={communityId}
@@ -874,7 +907,7 @@ export function CommunityView({
         />
       )}
 
-      {channelSettings && isAdmin && (
+      {channelSettings && isAdminEffective && (
         <ChannelSettingsModal
           channel={channelSettings}
           token={token}

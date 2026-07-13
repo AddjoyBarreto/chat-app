@@ -118,8 +118,8 @@ export function ChatPanel({
 
       {hasDecryptFailures && (
         <div className="dc-chat__banner" role="status">
-          Some messages could not be decrypted on this device. Sign out and sign in again to
-          link this app, then ask your contact to send a new message.
+          Some older messages can&apos;t be read on this device (normal after linking a new app). Ask
+          your contact to send a new message — new messages should work.
         </div>
       )}
 

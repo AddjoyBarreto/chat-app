@@ -28,22 +28,24 @@ export async function sendPushToUser(
   body = "You have a new encrypted message",
   data: Record<string, string> = { type: "new_message" }
 ): Promise<void> {
-  const tokens = await ctx.db
-    .select({ token: pushTokens.token })
-    .from(pushTokens)
-    .where(eq(pushTokens.userId, userId));
-
-  if (tokens.length === 0) return;
-
-  const messages = tokens.map((t) => ({
-    to: t.token,
-    sound: "default" as const,
-    title,
-    body,
-    data,
-  }));
-
+  // Never throw — callers often fire-and-forget with `void`, and an unhandled
+  // rejection can crash the Vercel isolate (FUNCTION_INVOCATION_FAILED).
   try {
+    const tokens = await ctx.db
+      .select({ token: pushTokens.token })
+      .from(pushTokens)
+      .where(eq(pushTokens.userId, userId));
+
+    if (tokens.length === 0) return;
+
+    const messages = tokens.map((t) => ({
+      to: t.token,
+      sound: "default" as const,
+      title,
+      body,
+      data,
+    }));
+
     await fetch("https://exp.host/--/api/v2/push/send", {
       method: "POST",
       headers: {

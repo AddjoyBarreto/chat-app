@@ -92,8 +92,14 @@ export function CommunitySettingsModal({
       const memberList = await fetchGroupMembers(token, communityId);
       setMembers(memberList);
       if (isAdmin) {
-        const inviteList = await listCommunityInvites(token, communityId);
-        setInvites(inviteList);
+        try {
+          const inviteList = await listCommunityInvites(token, communityId);
+          setInvites(inviteList);
+        } catch (inviteErr) {
+          // Invites are only needed on the Invites tab — don't block Overview/Members.
+          setInvites([]);
+          setError(friendlyError(inviteErr));
+        }
       } else {
         setInvites([]);
       }

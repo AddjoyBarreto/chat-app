@@ -1,6 +1,11 @@
 import type { VaultDevice } from "@vaultchat/crypto";
 import { fetchConversation } from "./api.js";
-import { cacheDecryptedMessage } from "./message-cache.js";
+import { scheduleAccountBackupRefresh } from "./key-backup.js";
+import {
+  cacheDecryptedMessage,
+  isReadableCachedMessage,
+  isUnavailableMessage,
+} from "./message-cache.js";
 import {
   loadConversationTimeline,
   mergeConversationTimeline,
@@ -49,9 +54,12 @@ export async function syncConversationWithCache(
   const limit = opts.limit ?? 50;
   const local = await loadConversationTimeline(opts.storage, opts.userId, opts.peerId);
   const hydratedFromCache = local.length > 0;
+  const localById = new Map(
+    local.filter((m) => isReadableCachedMessage(m)).map((m) => [m.id, m])
+  );
 
   if (hydratedFromCache) {
-    await opts.onHydrated?.(local);
+    await opts.onHydrated?.(local.filter((m) => !isUnavailableMessage(m)));
   }
 
   const { messages: envelopes, cursor, hasMore } = await fetchConversation(
@@ -62,7 +70,7 @@ export async function syncConversationWithCache(
 
   if (opts.isCurrent && !opts.isCurrent()) {
     return {
-      messages: local,
+      messages: local.filter((m) => !isUnavailableMessage(m)),
       cursor: undefined,
       hasMore: false,
       hydratedFromCache,
@@ -71,6 +79,14 @@ export async function syncConversationWithCache(
 
   const decrypted: DisplayMessage[] = [];
   for (const envelope of envelopes) {
+    // Prefer restored / locally-sent plaintext — never re-poison with Signal failures.
+    const known = localById.get(envelope.id);
+    if (known) {
+      decrypted.push(known);
+      await cacheDecryptedMessage(opts.storage, opts.userId, known);
+      continue;
+    }
+
     const display = await decryptEnvelope(
       opts.device,
       envelope,
@@ -87,15 +103,23 @@ export async function syncConversationWithCache(
     await cacheDecryptedMessage(opts.storage, opts.userId, display);
   }
 
+  const readable = decrypted.filter((m) => !isUnavailableMessage(m));
+  const failedOnly = decrypted.filter((m) => isUnavailableMessage(m));
   const merged = await mergeConversationTimeline(
     opts.storage,
     opts.userId,
     opts.peerId,
-    decrypted
+    readable
   );
 
-  // Prefer showing the union when cache had older history; otherwise the sync page.
-  const messages = sortMessages(dedupeMessages(merged));
+  const byId = new Map(merged.map((m) => [m.id, m]));
+  // Show decrypt failures only when we have no readable copy for that id.
+  for (const fail of failedOnly) {
+    if (!byId.has(fail.id)) byId.set(fail.id, fail);
+  }
+  const messages = sortMessages(dedupeMessages([...byId.values()]));
+
+  scheduleAccountBackupRefresh(opts.storage, opts.token, opts.device, opts.userId);
 
   return {
     messages,

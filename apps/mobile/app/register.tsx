@@ -190,7 +190,13 @@ export default function RegisterScreen() {
       await saveSession(storage, stored);
       await persistDevice(storage, linked, reg.userId);
       try {
-        await mergeAndUploadAccountBackup(reg.token, normalized.password, linked);
+        await mergeAndUploadAccountBackup(
+          reg.token,
+          normalized.password,
+          linked,
+          storage,
+          reg.userId
+        );
       } catch {
         // non-fatal
       }

@@ -32,6 +32,14 @@ export interface CallSessionConfig {
 }
 
 const DISCONNECT_GRACE_MS = 8_000;
+/** Cap outbound video to limit TURN / asymmetric-link congestion. */
+const VIDEO_MAX_BITRATE_BPS = 800_000;
+
+const VIDEO_CAPTURE_CONSTRAINTS: MediaTrackConstraints = {
+  width: { ideal: 640, max: 1280 },
+  height: { ideal: 480, max: 720 },
+  frameRate: { ideal: 24, max: 24 },
+};
 
 export class CallSession {
   private pc: RTCPeerConnection | null = null;
@@ -210,6 +218,7 @@ export class CallSession {
         {
           const answer = await this.pc!.createAnswer();
           await this.pc!.setLocalDescription(answer);
+          await this.applyVideoBitrateCap();
           this.config.sendWs({
             type: "call_answer",
             callId: event.callId,
@@ -222,6 +231,7 @@ export class CallSession {
         if (event.callId !== this.callId || !this.pc) return;
         await this.pc.setRemoteDescription(event.sdp);
         await this.flushPendingIce();
+        await this.applyVideoBitrateCap();
         break;
 
       case "call_ice":
@@ -361,19 +371,45 @@ export class CallSession {
     const { getUserMedia } = this.getRtc();
     this.localStream = await getUserMedia({
       audio: true,
-      video: callType === "video",
+      video: callType === "video" ? VIDEO_CAPTURE_CONSTRAINTS : false,
     });
 
     for (const track of this.localStream.getTracks()) {
       this.pc?.addTrack(track, this.localStream);
     }
+    await this.applyVideoBitrateCap();
     this.config.onLocalStream?.(this.localStream);
+  }
+
+  /** Cap video sender bitrate so TURN asymmetry does not spike and freeze frames. */
+  private async applyVideoBitrateCap() {
+    if (!this.pc || this.callType !== "video") return;
+
+    for (const sender of this.pc.getSenders()) {
+      if (sender.track?.kind !== "video") continue;
+
+      const params = sender.getParameters();
+      if (!params.encodings?.length) {
+        params.encodings = [{}];
+      }
+      for (const encoding of params.encodings) {
+        encoding.maxBitrate = VIDEO_MAX_BITRATE_BPS;
+      }
+
+      try {
+        await sender.setParameters(params);
+      } catch {
+        // Some browsers reject setParameters before negotiation finishes;
+        // callers re-apply after setLocalDescription / answer.
+      }
+    }
   }
 
   private async createAndSendOffer() {
     if (!this.pc || !this.callId) return;
     const offer = await this.pc.createOffer();
     await this.pc.setLocalDescription(offer);
+    await this.applyVideoBitrateCap();
     this.config.sendWs({
       type: "call_offer",
       callId: this.callId,

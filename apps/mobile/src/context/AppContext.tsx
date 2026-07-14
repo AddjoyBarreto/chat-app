@@ -4,6 +4,8 @@ import {
   captureGroupKeyFromContent,
   clearLocalChatData,
   clearSession,
+  clearSessionBackupPassword,
+  uploadAccountBackupNow,
   createGateway,
   decryptEnvelope,
   deviceStorageKey,
@@ -18,6 +20,7 @@ import {
   ReadStateManager,
   replenishPreKeysIfNeeded,
   saveSession,
+  scheduleAccountBackupRefresh,
   type ConnectionState,
   type DisplayMessage,
   type GatewayHandle,
@@ -34,6 +37,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { AppState, type AppStateStatus } from "react-native";
 import { setupPushNotifications } from "@/lib/push";
 import { createSecureStorageAdapter } from "@/lib/storage";
 import { ensureMobileCrypto, verifyMobileCrypto } from "@/lib/mobileCrypto";
@@ -153,6 +157,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
         if (display.status !== "decrypt_failed") {
           await persistDevice(storage, dev, sess.userId);
+          scheduleAccountBackupRefresh(storage, sess.token, dev, sess.userId);
         }
 
         if (
@@ -162,6 +167,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         ) {
           inboxRef.current.markProcessed(envelope.id);
           setGroupKeysVersion((v) => v + 1);
+          scheduleAccountBackupRefresh(storage, sess.token, dev, sess.userId);
           return;
         }
         if (display.content.type === "group_key") {
@@ -247,12 +253,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback(async () => {
     const userId = session?.userId;
+    const token = session?.token;
     gatewayRef.current?.close();
     gatewayRef.current = null;
+    try {
+      if (userId && device && token) {
+        await uploadAccountBackupNow(storage, token, device, userId);
+      }
+    } catch {
+      // best-effort
+    }
+    clearSessionBackupPassword();
     await readStateRef.current?.clear();
     if (userId) {
       await clearLocalChatData(storage, userId);
       await storage.removeItem(deviceStorageKey(userId));
+      await clearSessionBackupPassword(storage, userId);
     }
     await clearSession(storage);
     inboxRef.current.clearProcessed();
@@ -265,7 +281,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setPreviews({});
     setInitError(null);
     void Notifications.setBadgeCountAsync(0).catch(() => {});
-  }, [session?.userId]);
+  }, [session?.userId, session?.token, device]);
 
   useEffect(() => {
     void (async () => {
@@ -312,6 +328,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     void Notifications.setBadgeCountAsync(chatUnreadCount).catch(() => {});
   }, [chatUnreadCount]);
+
+  // Flush plaintext history when the app backgrounds (rebuild / kill).
+  useEffect(() => {
+    if (!session || !device) return;
+    const onChange = (state: AppStateStatus) => {
+      if (state === "background" || state === "inactive") {
+        void uploadAccountBackupNow(storage, session.token, device, session.userId);
+      }
+    };
+    const sub = AppState.addEventListener("change", onChange);
+    return () => sub.remove();
+  }, [session, device]);
 
   useEffect(() => {
     if (!session?.token || !session.emailVerified || !device) {

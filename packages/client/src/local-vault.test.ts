@@ -36,7 +36,7 @@ describe("local-vault", () => {
     expect(opened).toEqual(payload);
   });
 
-  it("fails closed after vault key is wiped", async () => {
+  it("fails closed after vault key is wiped without minting a replacement", async () => {
     const storage = memoryStorage();
     const userId = "user-2";
     const sealed = await sealJson(storage, userId, { text: "private" });
@@ -45,6 +45,8 @@ describe("local-vault", () => {
 
     const opened = await openSealedJson<{ text: string }>(storage, userId, sealed);
     expect(opened).toBeNull();
+    // Critical: must not mint a new key on failed read (would orphan other sealed blobs).
+    expect(await storage.getItem(vaultKeyStorageKey(userId))).toBeNull();
   });
 
   it("migrates legacy plaintext JSON", async () => {

@@ -1,8 +1,9 @@
 import { GroupCipher, serializeMessageContent, type VaultDevice } from "@vaultchat/crypto";
 import type { MessageContent, MessageType } from "@vaultchat/protocol";
 import {
-  fetchOwnDeviceBundles,
   fetchPreKeyBundle,
+  listOwnOtherDeviceIds,
+  listRecipientDeviceIds,
   sendEncryptedMessage,
 } from "./api.js";
 import { getStoredGroupKey, loadGroupCipher, saveGroupKey } from "./group-keys.js";
@@ -21,14 +22,15 @@ export async function syncGroupKeyToOwnDevices(
   groupId: string,
   keyBase64: string
 ): Promise<number> {
-  const ownBundles = await fetchOwnDeviceBundles(token, userId);
+  const otherDeviceIds = await listOwnOtherDeviceIds(token, device.deviceId);
+  const plaintext = serializeMessageContent({
+    type: "group_key",
+    groupKey: { groupId, key: keyBase64 },
+  });
   let sent = 0;
-  for (const { deviceId, bundle } of ownBundles) {
-    if (deviceId === device.deviceId) continue;
-    const plaintext = serializeMessageContent({
-      type: "group_key",
-      groupKey: { groupId, key: keyBase64 },
-    });
+  for (const deviceId of otherDeviceIds) {
+    const hasSession = await device.hasOpenSession(userId, deviceId);
+    const bundle = hasSession ? undefined : await fetchPreKeyBundle(userId, deviceId);
     const encrypted = await device.encrypt(userId, deviceId, plaintext, bundle);
     await sendEncryptedMessage(token, userId, encrypted, "text", undefined, deviceId);
     sent++;
@@ -66,13 +68,17 @@ export async function distributeGroupKeyToMember(
     await syncGroupKeyToOwnDevices(token, device, userId, groupId, keyBase64);
     return;
   }
-  const bundle = await fetchPreKeyBundle(targetUserId);
   const plaintext = serializeMessageContent({
     type: "group_key",
     groupKey: { groupId, key: keyBase64 },
   });
-  const encrypted = await device.encrypt(targetUserId, bundle.deviceId, plaintext, bundle);
-  await sendEncryptedMessage(token, targetUserId, encrypted, "text", undefined, bundle.deviceId);
+  const deviceIds = await listRecipientDeviceIds(targetUserId);
+  for (const deviceId of deviceIds) {
+    const hasSession = await device.hasOpenSession(targetUserId, deviceId);
+    const bundle = hasSession ? undefined : await fetchPreKeyBundle(targetUserId, deviceId);
+    const encrypted = await device.encrypt(targetUserId, deviceId, plaintext, bundle);
+    await sendEncryptedMessage(token, targetUserId, encrypted, "text", undefined, deviceId);
+  }
 }
 
 export async function shareGroupKeyWithMember(

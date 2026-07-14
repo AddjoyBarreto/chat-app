@@ -90,7 +90,10 @@ export function ChatComposer({
 
       <Pressable
         style={[styles.sendBtn, !canSend && styles.btnDisabled]}
-        onPress={onSend}
+        onPress={() => {
+          if (!canSend) return;
+          onSend();
+        }}
         disabled={!canSend}
         hitSlop={8}
       >

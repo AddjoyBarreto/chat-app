@@ -113,9 +113,13 @@ export async function searchUsers(
 
 export async function fetchPreKeyBundle(
   userId: string,
-  deviceId = 1
+  deviceId: number | string = 1
 ): Promise<PreKeyBundleResponse> {
-  const params = deviceId !== 1 ? `?deviceId=${deviceId}` : "";
+  const id = typeof deviceId === "number" ? deviceId : Number(deviceId);
+  if (!Number.isFinite(id) || id < 1) {
+    throw new Error(`Invalid deviceId for prekey fetch: ${String(deviceId)}`);
+  }
+  const params = id !== 1 ? `?deviceId=${id}` : "";
   const res = await clientFetch(apiUrl(`/api/v1/keys/${userId}${params}`));
   return parseApiResponse(res);
 }
@@ -136,21 +140,47 @@ export async function fetchMyDevices(
   return parseApiResponse(res);
 }
 
+/** Public device IDs for a user (does not consume one-time prekeys). */
+export async function listRecipientDeviceIds(recipientId: string): Promise<number[]> {
+  const { devices } = await fetchUserDevices(recipientId);
+  const ids = devices
+    .map((d) => Number(d.deviceId))
+    .filter((id) => Number.isFinite(id) && id >= 1);
+  return ids.length > 0 ? ids : [1];
+}
+
+/** Linked device IDs excluding the current device (does not consume one-time prekeys). */
+export async function listOwnOtherDeviceIds(
+  token: string,
+  myDeviceId: number
+): Promise<number[]> {
+  const mine = Number(myDeviceId);
+  const { devices } = await fetchMyDevices(token);
+  return devices
+    .map((d) => Number(d.deviceId))
+    .filter((id) => Number.isFinite(id) && id >= 1 && id !== mine);
+}
+
+/**
+ * @deprecated Prefer `listRecipientDeviceIds` + session-aware encrypt — fetching a
+ * bundle consumes a one-time prekey even when a Signal session already exists.
+ */
 export async function fetchRecipientDeviceBundles(
   recipientId: string
 ): Promise<Array<{ deviceId: number; bundle: PreKeyBundleResponse }>> {
-  const { devices } = await fetchUserDevices(recipientId);
-  if (devices.length === 0) {
-    return [{ deviceId: 1, bundle: await fetchPreKeyBundle(recipientId, 1) }];
-  }
+  const deviceIds = await listRecipientDeviceIds(recipientId);
   return Promise.all(
-    devices.map(async (d) => ({
-      deviceId: d.deviceId,
-      bundle: await fetchPreKeyBundle(recipientId, d.deviceId),
+    deviceIds.map(async (deviceId) => ({
+      deviceId,
+      bundle: await fetchPreKeyBundle(recipientId, deviceId),
     }))
   );
 }
 
+/**
+ * @deprecated Prefer `listOwnOtherDeviceIds` + session-aware encrypt.
+ * Still skips nothing historically — callers should filter `myDeviceId` themselves.
+ */
 export async function fetchOwnDeviceBundles(
   token: string,
   userId: string

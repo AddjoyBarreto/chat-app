@@ -2,17 +2,20 @@
 
 import {
   captureGroupKeyFromContent,
-  cacheDecryptedMessage,
   clearLocalChatData,
   createLocalStorageAdapter,
   deviceStorageKey,
   fetchGroups,
   forEachInboxPage,
-  fetchOwnDeviceBundles,
-  fetchRecipientDeviceBundles,
+  listOwnOtherDeviceIds,
+  listRecipientDeviceIds,
   MessageInbox,
   mergeAndUploadAccountBackup,
+  clearSessionBackupPassword,
+  scheduleAccountBackupRefresh,
+  uploadAccountBackupNow,
   mergeConversationTimeline,
+  persistOwnDirectMessage,
   parseMemberUsernames,
   prepareMediaMessage,
   ReadStateManager,
@@ -159,6 +162,7 @@ export function ChatApp() {
   const [loginErrors, setLoginErrors] = useState<LoginFieldErrors>({});
   const [safetyNumber, setSafetyNumber] = useState<string | null>(null);
   const [initError, setInitError] = useState<string | null>(null);
+  const [historyRestoreNotice, setHistoryRestoreNotice] = useState<string | null>(null);
 
   const deviceRef = useRef<VaultDevice | null>(null);
   const messageIdsRef = useRef(new Set<string>());
@@ -224,6 +228,12 @@ export function ChatApp() {
 
         if (display.status !== "decrypt_failed") {
           persistDevice(device, session.userId);
+          scheduleAccountBackupRefresh(
+            webStorage,
+            session.token,
+            device,
+            session.userId
+          );
         }
 
         if (display.content.type === "group_key" && display.content.groupKey) {
@@ -240,6 +250,12 @@ export function ChatApp() {
           opts?.appliedGroupKeys?.add(gid);
           if (saved) {
             show("Group encryption key received", "info");
+            scheduleAccountBackupRefresh(
+              webStorage,
+              session.token,
+              device,
+              session.userId
+            );
             const inGroup =
               activeGroupRef.current?.id === gid ||
               activeCommunityRef.current?.id === gid;
@@ -388,6 +404,25 @@ export function ChatApp() {
     friendsRef.current = friends;
   }, [calls, friends]);
 
+  // Flush plaintext history backup before tab close / background (parity with desktop).
+  useEffect(() => {
+    if (!session) return;
+    const flush = () => {
+      const device = deviceRef.current;
+      if (!device || !session) return;
+      void uploadAccountBackupNow(webStorage, session.token, device, session.userId);
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") flush();
+    };
+    window.addEventListener("pagehide", flush);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("pagehide", flush);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [session]);
+
   conversationsRef.current = conversations;
   peerRef.current = peer;
   activeGroupRef.current = activeGroup;
@@ -508,7 +543,13 @@ export function ChatApp() {
       saveSession(stored, fields.email);
       persistDevice(linked, reg.userId);
       try {
-        await mergeAndUploadAccountBackup(reg.token, fields.password, linked);
+        await mergeAndUploadAccountBackup(
+          reg.token,
+          fields.password,
+          linked,
+          webStorage,
+          reg.userId
+        );
       } catch {
         // non-fatal
       }
@@ -544,7 +585,8 @@ export function ChatApp() {
         deviceId: hint?.deviceId ?? 1,
       });
 
-      const { login, device } = await provisionDeviceForLogin(webStorage, {
+      const { login, device, isNewLinkedDevice, restoredHistory } =
+        await provisionDeviceForLogin(webStorage, {
         identifier,
         password: loginPassword,
         userId: preLogin.userId,
@@ -567,6 +609,19 @@ export function ChatApp() {
       await readStateRef.current.load();
       setSession(stored);
       await initDevice(stored);
+
+      const restoredCount =
+        (restoredHistory?.messages ?? 0) + (restoredHistory?.timelines ?? 0);
+      if (restoredCount > 0) {
+        setHistoryRestoreNotice(null);
+        show("Chat history restored from your account backup.", "info");
+      } else if (isNewLinkedDevice) {
+        setHistoryRestoreNotice(
+          "This browser is a new linked device. Previous messages stay on devices that already had them — new messages will work here. Keep using the same browser, or sign in again after chatting so backup can save history."
+        );
+      } else {
+        setHistoryRestoreNotice(null);
+      }
       await refreshConversations(stored.token);
       await refreshGroups(stored.token);
       show(`Welcome back, @${stored.username}!`, "info");
@@ -621,11 +676,24 @@ export function ChatApp() {
 
   function handleLogout() {
     const userId = session?.userId;
-    void readStateRef.current?.clear();
-    if (userId) {
-      void clearLocalChatData(webStorage, userId);
-      void webStorage.removeItem(deviceStorageKey(userId));
-    }
+    const device = deviceRef.current;
+    const token = session?.token;
+    void (async () => {
+      if (userId && device && token) {
+        try {
+          await uploadAccountBackupNow(webStorage, token, device, userId);
+        } catch {
+          // best-effort
+        }
+      }
+      clearSessionBackupPassword();
+      void readStateRef.current?.clear();
+      if (userId) {
+        void clearLocalChatData(webStorage, userId);
+        void webStorage.removeItem(deviceStorageKey(userId));
+        void clearSessionBackupPassword(webStorage, userId);
+      }
+    })();
     clearSession();
     setSession(null);
     deviceRef.current = null;
@@ -640,6 +708,7 @@ export function ChatApp() {
     setScreen("list");
     setTab("chats");
     setInitError(null);
+    setHistoryRestoreNotice(null);
   }
 
   async function openConversation(peerId: string, peerUsername: string) {
@@ -733,7 +802,14 @@ export function ChatApp() {
       }
       setMessages((prev) => {
         const merged = sortMessages(dedupeMessages([...older, ...prev]));
-        void mergeConversationTimeline(webStorage, session.userId, peer.id, older);
+        void mergeConversationTimeline(webStorage, session.userId, peer.id, older).then(() => {
+          scheduleAccountBackupRefresh(
+            webStorage,
+            session.token,
+            device,
+            session.userId
+          );
+        });
         return merged;
       });
       setMessageCursor(cursor);
@@ -841,12 +917,15 @@ export function ChatApp() {
       date: "Today",
       status: "sent",
     };
-    addMessage(optimistic);
+    // UI-only — do not seal optimistic UUIDs into the vault/timeline.
+    messageIdsRef.current.add(optimisticId);
+    setMessages((prev) => sortMessages(dedupeMessages([...prev, optimistic])));
+    setPreviews((prev) => ({ ...prev, [peer.id]: text }));
 
     try {
-      const [peerBundles, ownBundles] = await Promise.all([
-        fetchRecipientDeviceBundles(peer.id),
-        fetchOwnDeviceBundles(session.token, session.userId),
+      const [peerDeviceIds, ownOtherDeviceIds] = await Promise.all([
+        listRecipientDeviceIds(peer.id),
+        listOwnOtherDeviceIds(session.token, session.deviceId),
       ]);
       const { recipientPayload, recipientCiphertexts, senderCiphertexts } =
         await encryptOutgoingMessage(
@@ -854,8 +933,8 @@ export function ChatApp() {
         session.userId,
         peer.id,
         { type: "text", text },
-        peerBundles,
-        ownBundles
+        peerDeviceIds,
+        ownOtherDeviceIds
       );
       const result = await sendEncryptedMessage(
         session.token,
@@ -863,7 +942,7 @@ export function ChatApp() {
         recipientPayload,
         "text",
         undefined,
-        peerBundles[0]?.deviceId ?? 1,
+        peerDeviceIds[0] ?? 1,
         senderCiphertexts,
         recipientCiphertexts
       );
@@ -887,10 +966,19 @@ export function ChatApp() {
         )
       );
       messageIdsRef.current.add(result.messageId);
-      await cacheDecryptedMessage(webStorage, session.userId, sentMessage);
-      await mergeConversationTimeline(webStorage, session.userId, peer.id, [sentMessage]);
+      await persistOwnDirectMessage(webStorage, session.userId, peer.id, sentMessage, {
+        replaceOptimisticId: optimisticId,
+      });
       setPreviews((p) => ({ ...p, [peer.id]: text }));
       void refreshConversations(session.token);
+      if (deviceRef.current) {
+        scheduleAccountBackupRefresh(
+          webStorage,
+          session.token,
+          deviceRef.current,
+          session.userId
+        );
+      }
     } catch (e) {
       setMessages((prev) =>
         prev.map((m) =>
@@ -916,9 +1004,9 @@ export function ChatApp() {
         bytes,
         file.type || "application/octet-stream"
       );
-      const [peerBundles, ownBundles] = await Promise.all([
-        fetchRecipientDeviceBundles(peer.id),
-        fetchOwnDeviceBundles(session.token, session.userId),
+      const [peerDeviceIds, ownOtherDeviceIds] = await Promise.all([
+        listRecipientDeviceIds(peer.id),
+        listOwnOtherDeviceIds(session.token, session.deviceId),
       ]);
       const { recipientPayload, recipientCiphertexts, senderCiphertexts } =
         await encryptOutgoingMessage(
@@ -926,8 +1014,8 @@ export function ChatApp() {
         session.userId,
         peer.id,
         content,
-        peerBundles,
-        ownBundles
+        peerDeviceIds,
+        ownOtherDeviceIds
       );
       const result = await sendEncryptedMessage(
         session.token,
@@ -935,7 +1023,7 @@ export function ChatApp() {
         recipientPayload,
         messageType,
         undefined,
-        peerBundles[0]?.deviceId ?? 1,
+        peerDeviceIds[0] ?? 1,
         senderCiphertexts,
         recipientCiphertexts
       );
@@ -950,10 +1038,10 @@ export function ChatApp() {
         status: "sent",
       };
       addMessage(display);
-      await cacheDecryptedMessage(webStorage, session.userId, display);
-      await mergeConversationTimeline(webStorage, session.userId, peer.id, [display]);
+      await persistOwnDirectMessage(webStorage, session.userId, peer.id, display);
       setPreviews((p) => ({ ...p, [peer.id]: previewText(display) }));
       void refreshConversations(session.token);
+      scheduleAccountBackupRefresh(webStorage, session.token, device, session.userId);
       if (content.type === "media") {
         show("Large file encrypted and uploaded", "info");
       }
@@ -1327,6 +1415,20 @@ export function ChatApp() {
           {!isConnected && connectionState !== "connecting" && (
             <div className="vc-banner vc-banner--warning">
               Connection lost — messages will arrive when reconnected
+            </div>
+          )}
+
+          {historyRestoreNotice && (
+            <div className="vc-banner vc-banner--warning" role="status">
+              <span>{historyRestoreNotice}</span>
+              <button
+                type="button"
+                className="vc-icon-btn"
+                aria-label="Dismiss"
+                onClick={() => setHistoryRestoreNotice(null)}
+              >
+                ✕
+              </button>
             </div>
           )}
 

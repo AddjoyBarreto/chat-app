@@ -1,18 +1,21 @@
 import { generateSafetyNumber } from "@vaultchat/crypto";
 import {
-  cacheDecryptedMessage,
   decryptEnvelope,
   dedupeMessages,
   encryptOutgoingMessage,
   fetchConversation,
-  fetchOwnDeviceBundles,
+  listOwnOtherDeviceIds,
+  listRecipientDeviceIds,
   fetchPreKeyBundle,
-  fetchRecipientDeviceBundles,
   formatMessageDate,
   friendlyError,
   historyDecryptOptions,
   mergeConversationTimeline,
+  OWN_UNAVAILABLE_TEXT,
+  PEER_UNAVAILABLE_TEXT,
   persistDevice,
+  persistOwnDirectMessage,
+  scheduleAccountBackupRefresh,
   sendEncryptedMessage,
   sortMessages,
   syncConversationWithCache,
@@ -236,20 +239,23 @@ export default function ConversationScreen() {
     setSending(true);
 
     const optimisticId = `opt-${Date.now()}`;
-    addMessage({
+    const optimistic: DisplayMessage = {
       id: optimisticId,
       from: "me",
       content: { type: "text", text },
       time: new Date().toISOString(),
       date: "Today",
       status: "sent",
-    });
+    };
+    // UI-only — do not seal optimistic ids into the vault/timeline.
+    messageIds.current.add(optimisticId);
+    setMessages((prev) => sortMessages(dedupeMessages([...prev, optimistic])));
 
     try {
       ensureMobileCrypto();
-      const [peerBundles, ownBundles] = await Promise.all([
-        fetchRecipientDeviceBundles(peerId),
-        fetchOwnDeviceBundles(session.token, session.userId),
+      const [peerDeviceIds, ownOtherDeviceIds] = await Promise.all([
+        listRecipientDeviceIds(peerId),
+        listOwnOtherDeviceIds(session.token, session.deviceId),
       ]);
       const { recipientPayload, recipientCiphertexts, senderCiphertexts } =
         await encryptOutgoingMessage(
@@ -257,8 +263,8 @@ export default function ConversationScreen() {
         session.userId,
         peerId,
         { type: "text", text },
-        peerBundles,
-        ownBundles
+        peerDeviceIds,
+        ownOtherDeviceIds
       );
       const result = await sendEncryptedMessage(
         session.token,
@@ -266,7 +272,7 @@ export default function ConversationScreen() {
         recipientPayload,
         "text",
         undefined,
-        peerBundles[0]?.deviceId ?? 1,
+        peerDeviceIds[0] ?? 1,
         senderCiphertexts,
         recipientCiphertexts
       );
@@ -289,7 +295,12 @@ export default function ConversationScreen() {
           )
         )
       );
-      await cacheDecryptedMessage(storage, session.userId, sentMessage);
+      await persistOwnDirectMessage(storage, session.userId, peerId, sentMessage, {
+        replaceOptimisticId: optimisticId,
+      });
+      if (device) {
+        scheduleAccountBackupRefresh(storage, session.token, device, session.userId);
+      }
       void refreshConversations();
     } catch (e) {
       setMessages((prev) =>
@@ -308,9 +319,9 @@ export default function ConversationScreen() {
       const prepared = await pickAndPrepareMedia(session.token);
       if (!prepared) return;
 
-      const [peerBundles, ownBundles] = await Promise.all([
-        fetchRecipientDeviceBundles(peerId),
-        fetchOwnDeviceBundles(session.token, session.userId),
+      const [peerDeviceIds, ownOtherDeviceIds] = await Promise.all([
+        listRecipientDeviceIds(peerId),
+        listOwnOtherDeviceIds(session.token, session.deviceId),
       ]);
       const { recipientPayload, recipientCiphertexts, senderCiphertexts } =
         await encryptOutgoingMessage(
@@ -318,8 +329,8 @@ export default function ConversationScreen() {
         session.userId,
         peerId,
         prepared.content,
-        peerBundles,
-        ownBundles
+        peerDeviceIds,
+        ownOtherDeviceIds
       );
       const result = await sendEncryptedMessage(
         session.token,
@@ -327,7 +338,7 @@ export default function ConversationScreen() {
         recipientPayload,
         prepared.messageType,
         undefined,
-        peerBundles[0]?.deviceId ?? 1,
+        peerDeviceIds[0] ?? 1,
         senderCiphertexts,
         recipientCiphertexts
       );
@@ -342,7 +353,8 @@ export default function ConversationScreen() {
         status: "sent",
       };
       addMessage(sentMessage);
-      await cacheDecryptedMessage(storage, session.userId, sentMessage);
+      await persistOwnDirectMessage(storage, session.userId, peerId, sentMessage);
+      scheduleAccountBackupRefresh(storage, session.token, device, session.userId);
       void refreshConversations();
     } catch (e) {
       Alert.alert("Send failed", friendlyError(e));
@@ -365,7 +377,10 @@ export default function ConversationScreen() {
           ]}
         >
           {item.status === "decrypt_failed" ? (
-            <Text style={styles.bubbleText}>🔒 Unable to decrypt</Text>
+            <Text style={styles.bubbleText}>
+              {item.content.text ||
+                (item.from === "me" ? OWN_UNAVAILABLE_TEXT : PEER_UNAVAILABLE_TEXT)}
+            </Text>
           ) : (
             <>
               {item.content.type === "image" && item.content.image && (
@@ -438,7 +453,6 @@ export default function ConversationScreen() {
             onAttach={() => void handleAttachMedia()}
             sending={sending}
             attachDisabled={sending}
-            sendDisabled={!draft.trim()}
           />
         }
       />

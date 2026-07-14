@@ -4,10 +4,13 @@ import {
   type VaultDevice,
 } from "@vaultchat/crypto";
 import type { MessageContent, MessageEnvelope, PreKeyBundleResponse } from "@vaultchat/protocol";
-import { parseEnvelopeCiphertext } from "./api.js";
+import { fetchPreKeyBundle, parseEnvelopeCiphertext } from "./api.js";
 import {
   cacheDecryptedMessage,
   getCachedMessage,
+  isUnavailableMessage,
+  OWN_UNAVAILABLE_TEXT,
+  PEER_UNAVAILABLE_TEXT,
 } from "./message-cache.js";
 import { validateMessageText } from "./message-text.js";
 import type { StorageAdapter } from "./storage.js";
@@ -20,7 +23,8 @@ export interface DecryptMessageOptions {
   myDeviceId?: number;
   /**
    * When false, only read from the local plaintext cache (for history reload).
-   * Signal PreKey messages cannot be decrypted twice from server ciphertext.
+   * Signal message keys are one-shot — ciphertext from the server cannot be
+   * decrypted twice after a successful decrypt has already advanced the ratchet.
    */
   tryDecrypt?: boolean;
 }
@@ -65,7 +69,7 @@ export function formatMessageDate(iso: string): string {
 }
 
 export function previewText(msg: DisplayMessage): string {
-  if (msg.status === "decrypt_failed") return "Unable to decrypt";
+  if (isUnavailableMessage(msg) || msg.status === "decrypt_failed") return "Unable to decrypt";
   if (msg.content.type === "image") return "📷 Photo";
   if (msg.content.type === "video") return "🎬 Video";
   if (msg.content.type === "media") {
@@ -74,15 +78,31 @@ export function previewText(msg: DisplayMessage): string {
   return msg.content.text ?? "";
 }
 
+/** Ciphertext for this device only — never try other devices' copies (poisons ratchets). */
 function pickRecipientCiphertext(
   envelope: MessageEnvelope,
   myDeviceId?: number
-): string {
+): string | null {
   if (myDeviceId !== undefined) {
     const perDevice = envelope.recipientCiphertexts?.[String(myDeviceId)];
     if (perDevice) return perDevice;
   }
-  return envelope.ciphertext;
+  // Legacy single-ciphertext messages (pre multi-device fan-out).
+  if (envelope.ciphertext) return envelope.ciphertext;
+  return null;
+}
+
+function pickSenderCiphertext(
+  envelope: MessageEnvelope,
+  myDeviceId?: number
+): string | null {
+  const copies = envelope.senderCiphertexts;
+  if (!copies) return null;
+  if (myDeviceId !== undefined) {
+    return copies[String(myDeviceId)] ?? null;
+  }
+  const values = Object.values(copies);
+  return values.length === 1 ? values[0]! : null;
 }
 
 export async function decryptEnvelope(
@@ -104,35 +124,21 @@ export async function decryptEnvelope(
     from,
     content: {
       type: "text",
-      text:
-        from === "me"
-          ? "Message sent (open on the device that sent it to read)"
-          : "Unable to decrypt this message",
+      text: from === "me" ? OWN_UNAVAILABLE_TEXT : PEER_UNAVAILABLE_TEXT,
     },
     time: envelope.createdAt,
     date: formatMessageDate(envelope.createdAt),
-    status: from === "me" ? "sent" : "decrypt_failed",
+    // Always decrypt_failed so callers never treat placeholders as real "sent" content.
+    status: "decrypt_failed",
   });
 
-  // Own messages: decrypt sender copy for this device, or fall back to cache.
-  // Self-DMs (multi-device key sync) use the recipient ciphertext field instead.
+  // Own messages: decrypt sender copy for this device, or fall back to self-DM recipient copy.
   if (envelope.senderId === myUserId) {
-    const myDeviceId = options?.myDeviceId;
-    const copies = envelope.senderCiphertexts;
-
-    if (copies && tryDecrypt) {
-      const preferredKey =
-        myDeviceId !== undefined ? String(myDeviceId) : undefined;
-      const keysToTry = [
-        ...(preferredKey && copies[preferredKey] ? [preferredKey] : []),
-        ...Object.keys(copies).filter((k) => k !== preferredKey),
-      ];
-
-      for (const key of keysToTry) {
-        const copyRaw = copies[key];
-        if (!copyRaw) continue;
+    if (tryDecrypt) {
+      const senderCopy = pickSenderCiphertext(envelope, options?.myDeviceId);
+      if (senderCopy) {
         try {
-          const payload = parseEnvelopeCiphertext(copyRaw);
+          const payload = parseEnvelopeCiphertext(senderCopy);
           const plaintext = await device.decrypt(
             myUserId,
             envelope.senderDeviceId,
@@ -152,43 +158,36 @@ export async function decryptEnvelope(
           }
           return display;
         } catch {
-          // try next sender copy
+          // fall through
         }
       }
-    }
 
-    if (tryDecrypt && envelope.recipientId === myUserId) {
-      const ciphertextCandidates: string[] = [];
-      const preferred = pickRecipientCiphertext(envelope, options?.myDeviceId);
-      ciphertextCandidates.push(preferred);
-      if (envelope.recipientCiphertexts) {
-        for (const raw of Object.values(envelope.recipientCiphertexts)) {
-          if (raw !== preferred) ciphertextCandidates.push(raw);
-        }
-      }
-      for (const raw of ciphertextCandidates) {
-        try {
-          const payload = parseEnvelopeCiphertext(raw);
-          const plaintext = await device.decrypt(
-            envelope.senderId,
-            envelope.senderDeviceId,
-            payload
-          );
-          const content = parseMessageContent(plaintext);
-          const display: DisplayMessage = {
-            id: envelope.id,
-            from: "me",
-            content,
-            time: envelope.createdAt,
-            date: formatMessageDate(envelope.createdAt),
-            status: "sent",
-          };
-          if (options) {
-            await cacheDecryptedMessage(options.storage, options.userId, display);
+      if (envelope.recipientId === myUserId) {
+        const recipientCopy = pickRecipientCiphertext(envelope, options?.myDeviceId);
+        if (recipientCopy) {
+          try {
+            const payload = parseEnvelopeCiphertext(recipientCopy);
+            const plaintext = await device.decrypt(
+              envelope.senderId,
+              envelope.senderDeviceId,
+              payload
+            );
+            const content = parseMessageContent(plaintext);
+            const display: DisplayMessage = {
+              id: envelope.id,
+              from: "me",
+              content,
+              time: envelope.createdAt,
+              date: formatMessageDate(envelope.createdAt),
+              status: "sent",
+            };
+            if (options) {
+              await cacheDecryptedMessage(options.storage, options.userId, display);
+            }
+            return display;
+          } catch {
+            // fall through
           }
-          return display;
-        } catch {
-          // try next
         }
       }
     }
@@ -201,45 +200,31 @@ export async function decryptEnvelope(
   }
 
   try {
-    const ciphertextCandidates: string[] = [];
-    const preferred = pickRecipientCiphertext(envelope, options?.myDeviceId);
-    ciphertextCandidates.push(preferred);
-    if (envelope.recipientCiphertexts) {
-      for (const raw of Object.values(envelope.recipientCiphertexts)) {
-        if (raw !== preferred) ciphertextCandidates.push(raw);
-      }
+    const raw = pickRecipientCiphertext(envelope, options?.myDeviceId);
+    if (!raw) return undecryptable();
+
+    const payload = parseEnvelopeCiphertext(raw);
+    const plaintext = await device.decrypt(
+      envelope.senderId,
+      envelope.senderDeviceId,
+      payload
+    );
+    const content = parseMessageContent(plaintext);
+
+    const display: DisplayMessage = {
+      id: envelope.id,
+      from,
+      content,
+      time: envelope.createdAt,
+      date: formatMessageDate(envelope.createdAt),
+      status: "delivered",
+    };
+
+    if (options) {
+      await cacheDecryptedMessage(options.storage, options.userId, display);
     }
 
-    for (const raw of ciphertextCandidates) {
-      try {
-        const payload = parseEnvelopeCiphertext(raw);
-        const plaintext = await device.decrypt(
-          envelope.senderId,
-          envelope.senderDeviceId,
-          payload
-        );
-        const content = parseMessageContent(plaintext);
-
-        const display: DisplayMessage = {
-          id: envelope.id,
-          from,
-          content,
-          time: envelope.createdAt,
-          date: formatMessageDate(envelope.createdAt),
-          status: "delivered",
-        };
-
-        if (options) {
-          await cacheDecryptedMessage(options.storage, options.userId, display);
-        }
-
-        return display;
-      } catch {
-        // try next ciphertext variant
-      }
-    }
-
-    return undecryptable();
+    return display;
   } catch {
     return undecryptable();
   }
@@ -248,14 +233,15 @@ export async function decryptEnvelope(
 export function historyDecryptOptions(
   storage: StorageAdapter,
   userId: string,
-  envelope: MessageEnvelope,
-  myUserId: string,
+  _envelope: MessageEnvelope,
+  _myUserId: string,
   myDeviceId: number
 ): DecryptMessageOptions {
   return {
     storage,
     userId,
     myDeviceId,
+    // Cache is checked first; only uncached envelopes attempt Signal decrypt once.
     tryDecrypt: true,
   };
 }
@@ -268,28 +254,79 @@ export interface OutgoingEncryptedMessage {
 
 /** Encrypt for every recipient device plus per-device copies for sender's other sessions. */
 export function validateMessageContent(content: MessageContent): string | null {
-  if (content.type === "text" && content.text != null) {
-    return validateMessageText(content.text);
+  if (content.type === "text") {
+    return validateMessageText(content.text ?? "");
   }
   return null;
 }
 
+async function encryptForDevice(
+  device: VaultDevice,
+  peerUserId: string,
+  peerDeviceId: number,
+  plaintext: string,
+  fetchBundle: (userId: string, deviceId: number) => Promise<PreKeyBundleResponse>
+): Promise<import("@vaultchat/crypto").EncryptedPayload> {
+  const id = Number(peerDeviceId);
+  if (!Number.isFinite(id) || id < 1) {
+    throw new Error(`Invalid peer device id: ${String(peerDeviceId)}`);
+  }
+  const hasSession = await device.hasOpenSession(peerUserId, id);
+  const bundle = hasSession ? undefined : await fetchBundle(peerUserId, id);
+  return device.encrypt(peerUserId, id, plaintext, bundle);
+}
+
+/** Accept plain ids or legacy `{ deviceId }` / `{ deviceId, bundle }` entries. */
+function normalizeDeviceIdList(
+  ids: Array<number | string | { deviceId: number }>
+): number[] {
+  const out: number[] = [];
+  for (const entry of ids) {
+    const raw =
+      typeof entry === "object" && entry !== null
+        ? (entry as { deviceId: number }).deviceId
+        : entry;
+    const id = Number(raw);
+    if (!Number.isFinite(id) || id < 1) {
+      throw new Error(`Invalid device id in fan-out list: ${String(entry)}`);
+    }
+    out.push(id);
+  }
+  return out;
+}
+
+/**
+ * Encrypt for recipient devices + other own devices.
+ * Only fetches/consumes one-time prekeys when no Signal session exists yet.
+ */
 export async function encryptOutgoingMessage(
   device: VaultDevice,
   senderUserId: string,
   recipientId: string,
   content: MessageContent,
-  recipientBundles: Array<{ deviceId: number; bundle: PreKeyBundleResponse }>,
-  ownDeviceBundles: Array<{ deviceId: number; bundle: PreKeyBundleResponse }>
+  recipientDeviceIds: Array<number | string | { deviceId: number }>,
+  ownOtherDeviceIds: Array<number | string | { deviceId: number }> = [],
+  fetchBundle: (
+    userId: string,
+    deviceId: number
+  ) => Promise<PreKeyBundleResponse> = fetchPreKeyBundle
 ): Promise<OutgoingEncryptedMessage> {
   const textError = validateMessageContent(content);
   if (textError) throw new Error(textError);
   const plaintext = serializeMessageContent(content);
+  const recipientIds = normalizeDeviceIdList(recipientDeviceIds);
+  const ownIds = normalizeDeviceIdList(ownOtherDeviceIds);
   const recipientCiphertexts: Record<string, string> = {};
   let recipientPayload: import("@vaultchat/crypto").EncryptedPayload | undefined;
 
-  for (const { deviceId, bundle } of recipientBundles) {
-    const payload = await device.encrypt(recipientId, deviceId, plaintext, bundle);
+  for (const deviceId of recipientIds) {
+    const payload = await encryptForDevice(
+      device,
+      recipientId,
+      deviceId,
+      plaintext,
+      fetchBundle
+    );
     recipientCiphertexts[String(deviceId)] = JSON.stringify(payload);
     if (!recipientPayload || deviceId === 1) {
       recipientPayload = payload;
@@ -301,9 +338,18 @@ export async function encryptOutgoingMessage(
   }
 
   const senderCiphertexts: Record<string, string> = {};
-
-  for (const { deviceId, bundle } of ownDeviceBundles) {
-    const payload = await device.encrypt(senderUserId, deviceId, plaintext, bundle);
+  // Copies for other linked installs only. The sending device keeps plaintext in
+  // the local sealed cache/timeline (and account backup) — Signal cannot encrypt
+  // to the same device address it is sending from.
+  for (const deviceId of ownIds) {
+    if (deviceId === device.deviceId) continue;
+    const payload = await encryptForDevice(
+      device,
+      senderUserId,
+      deviceId,
+      plaintext,
+      fetchBundle
+    );
     senderCiphertexts[String(deviceId)] = JSON.stringify(payload);
   }
 
@@ -318,7 +364,13 @@ export async function encryptOutgoing(
 ) {
   const plaintext = serializeMessageContent(content);
   const recipientDeviceId = bundle?.deviceId ?? 1;
-  return device.encrypt(recipientId, recipientDeviceId, plaintext, bundle);
+  const hasSession = await device.hasOpenSession(recipientId, recipientDeviceId);
+  return device.encrypt(
+    recipientId,
+    recipientDeviceId,
+    plaintext,
+    hasSession ? undefined : bundle
+  );
 }
 
 export function groupByDate(

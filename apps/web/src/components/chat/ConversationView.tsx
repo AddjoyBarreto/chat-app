@@ -56,13 +56,6 @@ export function ConversationView({
     onSend();
   }
 
-  function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      if (draft.trim() && !sending) onSend();
-    }
-  }
-
   return (
     <div className="vc-conversation">
       <header className="vc-header vc-header--conversation">
@@ -153,7 +146,10 @@ export function ConversationView({
         <MarkdownComposerField
           value={draft}
           onChange={onDraftChange}
-          onKeyDown={handleKeyDown}
+          onSubmit={() => {
+            if (!draft.trim() || sending) return;
+            onSend();
+          }}
           placeholder={`Message (${MESSAGE_MARKDOWN_HINT})`}
           disabled={sending}
           rows={1}

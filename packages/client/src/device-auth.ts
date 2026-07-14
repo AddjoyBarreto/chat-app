@@ -1,7 +1,15 @@
 import { deviceMaterialMatchesServer, VaultDevice } from "@vaultchat/crypto";
 import type { LoginUserResponse, MessageEnvelope } from "@vaultchat/protocol";
 import { fetchInbox, fetchOwnDeviceKeys, loginOnServer, uploadPreKeys } from "./api.js";
-import { mergeAndUploadAccountBackup } from "./key-backup.js";
+import {
+  mergeAndUploadAccountBackup,
+  bindBackupSession,
+  tryRestoreDeviceFromBackup,
+  restoreHistoryFromBackupOnly,
+  hydrateBackupSession,
+  getSessionBackupPassword,
+  type RestoreHistoryResult,
+} from "./key-backup.js";
 import { decryptEnvelope, type DisplayMessage } from "./messages.js";
 import { loadDevice, persistDevice, type StoredSession } from "./session.js";
 import { deviceStorageKey, type StorageAdapter } from "./storage.js";
@@ -28,6 +36,10 @@ export async function assertDeviceMatchesServer(
 export interface IdentitySyncResult {
   login: LoginUserResponse;
   device: VaultDevice;
+  /** True when this install registered as a brand-new linked device (no matching backup slot). */
+  isNewLinkedDevice: boolean;
+  /** History restored from password backup (message cache / timelines / group keys). */
+  restoredHistory?: RestoreHistoryResult;
 }
 
 /** Replenish one-time prekeys on server when running low locally. */
@@ -92,8 +104,11 @@ export async function syncIdentityWithServer(
     deviceId: number;
     userId: string;
     deviceName?: string;
+    isNewLinkedDevice?: boolean;
+    restoredHistory?: RestoreHistoryResult;
   }
 ): Promise<IdentitySyncResult> {
+  const requestedDeviceId = device.deviceId;
   let material = await device.exportKeyMaterial();
   const login = await loginOnServer({
     identifier: options.identifier,
@@ -103,6 +118,9 @@ export async function syncIdentityWithServer(
     registrationId: material.registrationId,
     deviceName: options.deviceName,
   });
+
+  const isNewLinkedDevice =
+    options.isNewLinkedDevice === true || login.deviceId !== requestedDeviceId;
 
   let updatedDevice = device;
   if (login.deviceId !== device.deviceId) {
@@ -119,18 +137,34 @@ export async function syncIdentityWithServer(
       signedPreKey: material.signedPreKey,
       oneTimePreKeys: material.oneTimePreKeys,
     });
-    updatedDevice.clearSessions();
+    // Only wipe ratchets for a brand-new device slot. Re-uploading prekeys for
+    // an existing identity must keep recovered sessions intact.
+    if (isNewLinkedDevice) {
+      updatedDevice.clearSessions();
+    }
   } else {
     await repairServerPreKeysIfNeeded(storage, updatedDevice, login.token, login.userId);
   }
 
   await persistDevice(storage, updatedDevice, login.userId);
+  await bindBackupSession(storage, login.userId, options.password);
   try {
-    await mergeAndUploadAccountBackup(login.token, options.password, updatedDevice);
+    await mergeAndUploadAccountBackup(
+      login.token,
+      options.password,
+      updatedDevice,
+      storage,
+      login.userId
+    );
   } catch {
-    // non-fatal — local keys still work
+    // non-fatal — local keys still work; do not fail login if backup upload fails
   }
-  return { login, device: updatedDevice };
+  return {
+    login,
+    device: updatedDevice,
+    isNewLinkedDevice,
+    restoredHistory: options.restoredHistory,
+  };
 }
 
 /** Load local device or fail — never silently rotate keys without identity sync. */
@@ -150,12 +184,32 @@ export async function bootstrapDevice(
   await assertDeviceMatchesServer(session.token, device);
   await repairServerPreKeysIfNeeded(storage, device, session.token, session.userId);
   await replenishPreKeysIfNeeded(storage, device, session.token, session.userId);
+  const hasBackupPassword = await hydrateBackupSession(storage, session.userId);
+  // Rebuild / storage wipe often leaves Signal keys but drops the sealed plaintext
+  // cache. Pull history from the password backup whenever we can (Signal ciphertext
+  // cannot be decrypted twice).
+  if (hasBackupPassword) {
+    try {
+      const password = getSessionBackupPassword();
+      if (password) {
+        await restoreHistoryFromBackupOnly(
+          storage,
+          session.token,
+          password,
+          session.userId
+        );
+      }
+    } catch {
+      // non-fatal — chats still work for new messages
+    }
+  }
   return device;
 }
 
 /**
  * Load, restore from backup, or create keys — then link with the server.
  * WhatsApp/Signal model: each app install is a linked device with its own keys.
+ * Password backup also restores prior message plaintext so history survives reinstall.
  */
 export async function provisionDeviceForLogin(
   storage: StorageAdapter,
@@ -168,44 +222,68 @@ export async function provisionDeviceForLogin(
     deviceName?: string;
   }
 ): Promise<IdentitySyncResult> {
-  const { tryRestoreDeviceFromBackup } = await import("./key-backup.js");
   const { VaultDevice: VaultDeviceClass } = await import("@vaultchat/crypto");
+  const preferDeviceId = options.deviceIdHint ?? 1;
 
   let device: VaultDevice;
+  let isNewLinkedDevice = false;
+  let restoredHistory: RestoreHistoryResult | undefined;
+
+  const restoreOrCreate = async (): Promise<void> => {
+    const restored = await tryRestoreDeviceFromBackup(
+      storage,
+      options.password,
+      options.userId,
+      preferDeviceId,
+      options.token
+    );
+    if (restored) {
+      device = restored.device;
+      restoredHistory = restored.history;
+      isNewLinkedDevice = false;
+      return;
+    }
+    device = await VaultDeviceClass.create(options.userId, preferDeviceId);
+    isNewLinkedDevice = true;
+  };
+
   try {
     device = await loadDevice(storage, {
       username: options.identifier,
       userId: options.userId,
       token: options.token,
-      deviceId: options.deviceIdHint ?? 1,
+      deviceId: preferDeviceId,
     });
     await assertDeviceMatchesServer(options.token, device);
+    // Local keys already work — still pull plaintext history from backup every login.
+    try {
+      restoredHistory = await restoreHistoryFromBackupOnly(
+        storage,
+        options.token,
+        options.password,
+        options.userId
+      );
+    } catch {
+      restoredHistory = undefined;
+    }
   } catch (err) {
     if (err instanceof DeviceIdentityMismatchError) {
-      // Stale keys from another install — wipe and register as a new linked device.
+      // Stale local keys — prefer password backup over silently minting a new identity.
       await storage.removeItem(deviceStorageKey(options.userId));
-      device = await VaultDeviceClass.create(options.userId);
+      await restoreOrCreate();
     } else {
-      const preferDeviceId = options.deviceIdHint ?? 1;
-      const restored = await tryRestoreDeviceFromBackup(
-        storage,
-        options.password,
-        options.userId,
-        preferDeviceId,
-        options.token
-      );
-      device =
-        restored ??
-        (await VaultDeviceClass.create(options.userId, preferDeviceId));
+      await restoreOrCreate();
     }
   }
 
-  return syncIdentityWithServer(storage, device, {
+  return syncIdentityWithServer(storage, device!, {
     identifier: options.identifier,
     password: options.password,
-    deviceId: device.deviceId,
+    deviceId: device!.deviceId,
     userId: options.userId,
     deviceName: options.deviceName,
+    isNewLinkedDevice,
+    restoredHistory,
   });
 }
 

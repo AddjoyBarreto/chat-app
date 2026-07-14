@@ -57,6 +57,33 @@ export async function getStoredGroupKey(
   return map[groupId] ?? null;
 }
 
+/** Dump all community AES keys for password backup. */
+export async function exportGroupKeys(
+  storage: StorageAdapter,
+  userId: string
+): Promise<Record<string, string>> {
+  return loadKeyMap(storage, userId);
+}
+
+/** Restore community AES keys from password backup (does not overwrite existing keys). */
+export async function importGroupKeys(
+  storage: StorageAdapter,
+  userId: string,
+  keys: Record<string, string>
+): Promise<number> {
+  const map = await loadKeyMap(storage, userId);
+  let added = 0;
+  for (const [groupId, key] of Object.entries(keys)) {
+    if (!key) continue;
+    if (!map[groupId]) {
+      map[groupId] = key;
+      added++;
+    }
+  }
+  if (added > 0) await saveKeyMap(storage, userId, map);
+  return added;
+}
+
 /**
  * Persist a community/group AES key from a `group_key` DM.
  * By default, does not replace an existing different key (avoids older inbox

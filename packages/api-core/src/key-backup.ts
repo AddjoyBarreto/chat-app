@@ -4,7 +4,7 @@ import { eq } from "drizzle-orm";
 import type { ApiContext } from "./context.js";
 import { ApiCoreError } from "./errors.js";
 
-const MAX_BACKUP_CHARS = 2_000_000;
+const MAX_BACKUP_CHARS = 4_000_000;
 
 export async function getAccountKeyBackup(
   ctx: ApiContext,

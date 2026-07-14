@@ -667,6 +667,7 @@ export function CommunityView({
               className="vc-community-composer"
               onSubmit={(e) => {
                 e.preventDefault();
+                if (!draft.trim() || sending || !hasGroupKey) return;
                 void handleSend();
               }}
             >
@@ -674,6 +675,10 @@ export function CommunityView({
                 value={draft}
                 onChange={setDraft}
                 inputClassName="vc-community-composer__input"
+                onSubmit={() => {
+                  if (!draft.trim() || sending || !hasGroupKey) return;
+                  void handleSend();
+                }}
                 placeholder={
                   hasGroupKey ? `Message #${activeChannel.name}` : "Waiting for encryption key…"
                 }

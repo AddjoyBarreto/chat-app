@@ -35,21 +35,30 @@ async function importAesKey(rawBase64: string): Promise<CryptoKey> {
   );
 }
 
-/** Per-user AES key that never leaves the device storage adapter. */
+/** Existing vault key only — never mint on read (would orphan sealed blobs). */
+export async function getVaultKey(
+  storage: StorageAdapter,
+  userId: string
+): Promise<CryptoKey | null> {
+  const existing = await storage.getItem(vaultKeyStorageKey(userId));
+  if (!existing) return null;
+  return importAesKey(existing);
+}
+
+/** Per-user AES key that never leaves the device storage adapter. Creates on first write. */
 export async function getOrCreateVaultKey(
   storage: StorageAdapter,
   userId: string
 ): Promise<CryptoKey> {
-  const keyName = vaultKeyStorageKey(userId);
-  const existing = await storage.getItem(keyName);
-  if (existing) return importAesKey(existing);
+  const existing = await getVaultKey(storage, userId);
+  if (existing) return existing;
 
   const key = await crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, true, [
     "encrypt",
     "decrypt",
   ]);
   const raw = await crypto.subtle.exportKey("raw", key);
-  await storage.setItem(keyName, arrayBufferToBase64(raw));
+  await storage.setItem(vaultKeyStorageKey(userId), arrayBufferToBase64(raw));
   return key;
 }
 
@@ -86,7 +95,11 @@ export async function openSealedJson<T>(
       return parsed as T;
     }
 
-    const key = await getOrCreateVaultKey(storage, userId);
+    // Require the existing key. Minting here after a partial wipe would orphan all
+    // sealed history permanently (new key cannot open old blobs).
+    const key = await getVaultKey(storage, userId);
+    if (!key) return null;
+
     const plain = await crypto.subtle.decrypt(
       { name: "AES-GCM", iv: new Uint8Array(base64ToArrayBuffer(parsed.n)) },
       key,

@@ -1,5 +1,10 @@
 import type { StorageAdapter } from "./storage.js";
 import type { CachedDisplayMessage } from "./message-cache.js";
+import {
+  cacheDecryptedMessage,
+  isReadableCachedMessage,
+  isUnavailableMessage,
+} from "./message-cache.js";
 import { readSealedItem, writeSealedItem } from "./local-vault.js";
 import {
   dedupeMessages,
@@ -118,10 +123,12 @@ export async function loadConversationTimeline(
     entry = await migrateLegacyIfNeeded(storage, userId, peerId);
   }
   if (!entry?.messages?.length) return [];
-  return sortMessages(entry.messages as DisplayMessage[]).map((m) => ({
-    ...m,
-    date: formatMessageDate(m.time),
-  }));
+  return sortMessages(entry.messages as DisplayMessage[])
+    .filter((m) => !isUnavailableMessage(m))
+    .map((m) => ({
+      ...m,
+      date: formatMessageDate(m.time),
+    }));
 }
 
 export async function saveConversationTimeline(
@@ -130,7 +137,9 @@ export async function saveConversationTimeline(
   peerId: string,
   messages: DisplayMessage[]
 ): Promise<void> {
-  const sorted = capMessages(toCached(sortMessages(dedupeMessages(messages))));
+  const sorted = capMessages(
+    toCached(sortMessages(dedupeMessages(messages.filter((m) => !isUnavailableMessage(m)))))
+  );
   const newestAt = sorted[sorted.length - 1]?.time;
   const entry: ConversationTimeline = {
     peerId,
@@ -154,13 +163,48 @@ export async function mergeConversationTimeline(
   peerId: string,
   incoming: DisplayMessage[]
 ): Promise<DisplayMessage[]> {
-  if (incoming.length === 0) {
+  const readableIncoming = incoming.filter((m) => !isUnavailableMessage(m));
+  if (readableIncoming.length === 0) {
     return loadConversationTimeline(storage, userId, peerId);
   }
   const existing = await loadConversationTimeline(storage, userId, peerId);
-  const merged = sortMessages(dedupeMessages([...existing, ...incoming]));
+  // Prefer existing readable copies when ids collide (restored history wins over empty retries).
+  const merged = sortMessages(dedupeMessages([...existing, ...readableIncoming]));
   await saveConversationTimeline(storage, userId, peerId, merged);
   return merged;
+}
+
+/** Drop a timeline entry (e.g. optimistic client UUID after server ack). */
+export async function removeTimelineMessage(
+  storage: StorageAdapter,
+  userId: string,
+  peerId: string,
+  messageId: string
+): Promise<void> {
+  const existing = await loadConversationTimeline(storage, userId, peerId);
+  const next = existing.filter((m) => m.id !== messageId);
+  if (next.length === existing.length) return;
+  await saveConversationTimeline(storage, userId, peerId, next);
+}
+
+/**
+ * Seal the sender's own plaintext after a successful send.
+ * Own-device Signal copies are not written for the sending device — this local
+ * cache (and the password backup) is the only way history survives a rebuild.
+ */
+export async function persistOwnDirectMessage(
+  storage: StorageAdapter,
+  userId: string,
+  peerId: string,
+  message: DisplayMessage,
+  opts?: { replaceOptimisticId?: string }
+): Promise<void> {
+  if (isUnavailableMessage(message)) return;
+  if (opts?.replaceOptimisticId) {
+    await removeTimelineMessage(storage, userId, peerId, opts.replaceOptimisticId);
+  }
+  await cacheDecryptedMessage(storage, userId, message);
+  await mergeConversationTimeline(storage, userId, peerId, [message]);
 }
 
 export async function clearConversationTimelines(
@@ -173,4 +217,45 @@ export async function clearConversationTimelines(
   );
   await storage.removeItem(timelinePeerIndexKey(userId));
   await storage.removeItem(legacyTimelinesKey(userId));
+}
+
+/** Dump peer timelines for password backup. */
+export async function exportConversationTimelines(
+  storage: StorageAdapter,
+  userId: string
+): Promise<Record<string, ConversationTimeline>> {
+  const peers = await loadPeerIndex(storage, userId);
+  const out: Record<string, ConversationTimeline> = {};
+  for (const peerId of peers) {
+    const entry = await readSealedItem<ConversationTimeline>(
+      storage,
+      userId,
+      timelineStorageKey(userId, peerId)
+    );
+    if (!entry?.messages?.length) continue;
+    out[peerId] = {
+      ...entry,
+      messages: entry.messages.filter((m) => isReadableCachedMessage(m)),
+    };
+  }
+  return out;
+}
+
+/** Restore peer timelines from password backup (merges with any local readable messages). */
+export async function importConversationTimelines(
+  storage: StorageAdapter,
+  userId: string,
+  timelines: Record<string, ConversationTimeline>
+): Promise<number> {
+  let restored = 0;
+  for (const [peerId, entry] of Object.entries(timelines)) {
+    if (!entry?.messages?.length) continue;
+    const messages = (entry.messages as DisplayMessage[]).filter(
+      (m) => isReadableCachedMessage(m)
+    );
+    if (messages.length === 0) continue;
+    await mergeConversationTimeline(storage, userId, peerId, messages);
+    restored += messages.length;
+  }
+  return restored;
 }

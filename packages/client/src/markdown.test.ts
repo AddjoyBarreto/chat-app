@@ -16,6 +16,14 @@ describe("validateMessageText", () => {
   });
 });
 
+describe("validateMessageContent", () => {
+  it("rejects text messages with missing body", async () => {
+    const { validateMessageContent } = await import("./messages.js");
+    expect(validateMessageContent({ type: "text" })).toMatch(/empty/);
+    expect(validateMessageContent({ type: "text", text: "  " })).toMatch(/empty/);
+  });
+});
+
 describe("parseInlineMarkdown", () => {
   it("parses bold and italic", () => {
     const runs = parseInlineMarkdown("**bold** and *italic*");

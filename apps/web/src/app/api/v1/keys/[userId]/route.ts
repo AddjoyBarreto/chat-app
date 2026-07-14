@@ -9,7 +9,14 @@ export async function GET(
   try {
     const { userId } = await params;
     const { searchParams } = new URL(request.url);
-    const deviceId = Number(searchParams.get("deviceId") ?? "1");
+    const raw = searchParams.get("deviceId") ?? "1";
+    const deviceId = Number(raw);
+    if (!Number.isFinite(deviceId) || deviceId < 1) {
+      return jsonResponse(
+        { error: "Invalid deviceId", code: "INVALID_DEVICE_ID" },
+        400
+      );
+    }
     const result = await getPreKeyBundle(getApiContext(), userId, deviceId);
     return jsonResponse(result);
   } catch (err) {

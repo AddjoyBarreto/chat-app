@@ -548,7 +548,7 @@ export default function GroupChatScreen() {
               editable={hasKey}
               sending={sending}
               attachDisabled={!hasKey}
-              sendDisabled={!hasKey || !draft.trim()}
+              sendDisabled={!hasKey}
             />
           }
         />

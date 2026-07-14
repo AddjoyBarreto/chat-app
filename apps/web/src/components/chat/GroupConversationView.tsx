@@ -212,6 +212,10 @@ export function GroupConversationView({
         <MarkdownComposerField
           value={draft}
           onChange={onDraftChange}
+          onSubmit={() => {
+            if (!draft.trim() || sending || !hasGroupKey) return;
+            onSend();
+          }}
           placeholder={hasGroupKey ? `Group message (${MESSAGE_MARKDOWN_HINT})` : "Waiting for encryption key…"}
           disabled={sending || !hasGroupKey}
           rows={1}

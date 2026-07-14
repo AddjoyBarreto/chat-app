@@ -649,6 +649,7 @@ export function GroupServerView({
               className="dc-gc-composer"
               onSubmit={(e) => {
                 e.preventDefault();
+                if (!draft.trim() || sending || !hasGroupKey) return;
                 void handleSend();
               }}
             >
@@ -658,6 +659,10 @@ export function GroupServerView({
                   onChange={setDraft}
                   fieldClassName="dc-composer-field"
                   inputClassName="dc-composer__input"
+                  onSubmit={() => {
+                    if (!draft.trim() || sending || !hasGroupKey) return;
+                    void handleSend();
+                  }}
                   placeholder={
                     hasGroupKey
                       ? `Message #${activeChannel.name} (${MESSAGE_MARKDOWN_HINT})`

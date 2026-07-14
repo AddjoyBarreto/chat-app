@@ -759,6 +759,11 @@ button:disabled {
   background: var(--accent-hover);
 }
 
+.vc-composer__send:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .vc-composer__attach {
   background: none;
   border: none;

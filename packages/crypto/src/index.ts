@@ -15,4 +15,6 @@ export {
   encryptAccountBackup,
   decryptAccountBackup,
   type AccountKeyBackupPayload,
+  type BackupCachedMessage,
+  type BackupConversationTimeline,
 } from "./backup.js";

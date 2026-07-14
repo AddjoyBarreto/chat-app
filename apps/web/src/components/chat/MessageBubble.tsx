@@ -2,6 +2,7 @@
 
 import type { DisplayMessage } from "@/lib/messages";
 import { formatMessageTime } from "@/lib/messages";
+import { OWN_UNAVAILABLE_TEXT, PEER_UNAVAILABLE_TEXT } from "@vaultchat/client";
 import { MarkdownText } from "@vaultchat/chat-react";
 import { MediaAttachment } from "./MediaAttachment";
 
@@ -42,7 +43,10 @@ export function MessageBubble({
     <div className={rowClass}>
       <div className={bubbleClass}>
         {message.status === "decrypt_failed" ? (
-          <span>🔒 Unable to decrypt this message</span>
+          <span>
+            {message.content.text ||
+              (message.from === "me" ? OWN_UNAVAILABLE_TEXT : PEER_UNAVAILABLE_TEXT)}
+          </span>
         ) : (
           <>
             {message.content.type === "image" && message.content.image && (

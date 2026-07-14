@@ -231,23 +231,39 @@ export class VaultDevice {
     this.store.clearSessions();
   }
 
+  async hasOpenSession(recipientId: string, recipientDeviceId: number): Promise<boolean> {
+    const address = this.addressFor(recipientId, recipientDeviceId);
+    const cipher = new SessionCipher(this.store, address);
+    return cipher.hasOpenSession();
+  }
+
+  /**
+   * Encrypt to a peer device.
+   * - Reuses an existing Double Ratchet session when present (type 1 WhisperMessage).
+   * - Only runs X3DH when there is no session (or `forceNewSession` is set).
+   * Pass a prekey `bundle` only when a new session may be needed; do not fetch/consume
+   * one-time prekeys on every send.
+   */
   async encrypt(
     recipientId: string,
     recipientDeviceId: number,
     plaintext: string,
-    bundle?: PreKeyBundleResponse
+    bundle?: PreKeyBundleResponse,
+    opts?: { forceNewSession?: boolean }
   ): Promise<EncryptedPayload> {
     const address = this.addressFor(recipientId, recipientDeviceId);
     const cipher = new SessionCipher(this.store, address);
+    const forceNewSession = opts?.forceNewSession === true;
+    const hasSession = forceNewSession ? false : await cipher.hasOpenSession();
 
-    if (bundle) {
-      await this.resetSession(recipientId, recipientDeviceId);
-      await this.establishSession(bundle);
-    } else {
-      const hasSession = await cipher.hasOpenSession();
-      if (!hasSession) {
+    if (!hasSession) {
+      if (!bundle) {
         throw new Error("No session and no prekey bundle provided");
       }
+      if (forceNewSession) {
+        await this.resetSession(recipientId, recipientDeviceId);
+      }
+      await this.establishSession(bundle);
     }
 
     const ciphertext = await cipher.encrypt(utf8ToArrayBuffer(plaintext));
@@ -263,25 +279,17 @@ export class VaultDevice {
     const cipher = new SessionCipher(this.store, address);
     const message = VaultDevice.payloadToMessage(payload);
 
-    const run = async (): Promise<string> => {
-      let plaintext: ArrayBuffer;
-      if (message.type === 3) {
-        plaintext = await cipher.decryptPreKeyWhisperMessage(message.body!, "binary");
-      } else if (message.type === 1) {
-        plaintext = await cipher.decryptWhisperMessage(message.body!, "binary");
-      } else {
-        throw new Error(`Unknown message type: ${message.type}`);
-      }
-      return arrayBufferToUtf8(plaintext);
-    };
-
-    try {
-      return await run();
-    } catch (err) {
-      if (message.type !== 1) throw err;
-      await this.resetSession(senderId, senderDeviceId);
-      return run();
+    let plaintext: ArrayBuffer;
+    if (message.type === 3) {
+      plaintext = await cipher.decryptPreKeyWhisperMessage(message.body!, "binary");
+    } else if (message.type === 1) {
+      // Do not reset+retry on failure: wiping the session cannot make the same
+      // WhisperMessage decryptable, and wrongly-tried ciphertexts would poison ratchets.
+      plaintext = await cipher.decryptWhisperMessage(message.body!, "binary");
+    } else {
+      throw new Error(`Unknown message type: ${message.type}`);
     }
+    return arrayBufferToUtf8(plaintext);
   }
 
   static messageToPayload(message: MessageType): EncryptedPayload {

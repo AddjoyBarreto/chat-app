@@ -10,7 +10,7 @@ import {
 } from "@vaultchat/client";
 import { Redirect, useRouter } from "expo-router";
 import { useState } from "react";
-import { Platform, StyleSheet, Text, TouchableOpacity } from "react-native";
+import { Alert, Platform, StyleSheet, Text, TouchableOpacity } from "react-native";
 import { AuthScreen } from "@/components/ui/AuthScreen";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -54,7 +54,8 @@ export default function LoginScreen() {
         deviceName: Platform.OS,
       });
 
-      const { login, device } = await provisionDeviceForLogin(storage, {
+      const { login, device, isNewLinkedDevice, restoredHistory } =
+        await provisionDeviceForLogin(storage, {
         identifier: id,
         password,
         userId: preLogin.userId,
@@ -75,6 +76,17 @@ export default function LoginScreen() {
       await persistDevice(storage, device, login.userId);
       setDevice(device);
       setSession(stored);
+
+      const restoredCount =
+        (restoredHistory?.messages ?? 0) + (restoredHistory?.timelines ?? 0);
+      if (restoredCount > 0) {
+        Alert.alert("History restored", "Your previous chats were restored from backup.");
+      } else if (isNewLinkedDevice) {
+        Alert.alert(
+          "New device",
+          "This install has new encryption keys. Previous messages stay on devices that already had them. New messages will work normally."
+        );
+      }
 
       if (login.emailVerified) {
         router.replace("/chats");

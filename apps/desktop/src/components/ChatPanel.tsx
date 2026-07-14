@@ -1,5 +1,5 @@
 import type { useCallSession, useFriends, useVaultChat } from "@vaultchat/chat-react";
-import { presenceLabel, MESSAGE_MARKDOWN_HINT } from "@vaultchat/client";
+import { presenceLabel, MESSAGE_MARKDOWN_HINT, OWN_UNAVAILABLE_TEXT } from "@vaultchat/client";
 import { MarkdownText, MarkdownComposerField, PresenceDot } from "@vaultchat/chat-react";
 import { Virtuoso } from "react-virtuoso";
 import { groupByDate } from "@vaultchat/client";
@@ -118,8 +118,8 @@ export function ChatPanel({
 
       {hasDecryptFailures && (
         <div className="dc-chat__banner" role="status">
-          Some older messages can&apos;t be read on this device (normal after linking a new app). Ask
-          your contact to send a new message — new messages should work.
+          Some messages can&apos;t be read here after an app rebuild or new device. New messages
+          still work — ask your contact to send again if you need the older ones.
         </div>
       )}
 
@@ -170,7 +170,9 @@ export function ChatPanel({
                   <div className="dc-msg-row dc-msg-row--out">
                     <div className={`dc-bubble dc-bubble--out${failed ? " dc-bubble--failed" : ""}`}>
                       {failed ? (
-                        <span className="dc-bubble__failed-text">Unable to decrypt</span>
+                        <span className="dc-bubble__failed-text">
+                          {m.content.text || OWN_UNAVAILABLE_TEXT}
+                        </span>
                       ) : body ? (
                         <MarkdownText text={body} className="dc-bubble__text" />
                       ) : null}
@@ -191,7 +193,7 @@ export function ChatPanel({
                     {failed ? (
                       <div className="dc-bubble dc-bubble--failed dc-bubble--in-failed">
                         <LockIcon />
-                        <span>Unable to decrypt this message</span>
+                        <span>{m.content.text || "Unable to decrypt this message"}</span>
                       </div>
                     ) : body ? (
                       <p className="dc-msg__text">
@@ -216,6 +218,7 @@ export function ChatPanel({
         className="dc-composer"
         onSubmit={(e) => {
           e.preventDefault();
+          if (!chat.draft.trim() || chat.sending) return;
           void chat.sendMessage();
         }}
       >
@@ -225,6 +228,10 @@ export function ChatPanel({
             onChange={chat.setDraft}
             fieldClassName="dc-composer-field"
             inputClassName="dc-composer__input"
+            onSubmit={() => {
+              if (!chat.draft.trim() || chat.sending) return;
+              void chat.sendMessage();
+            }}
             placeholder={`Message @${peer.username} (${MESSAGE_MARKDOWN_HINT})`}
             disabled={chat.sending}
             rows={1}

@@ -19,6 +19,7 @@ export function MarkdownComposerField({
   inputClassName = "vc-composer__input",
   rows = 1,
   onKeyDown,
+  onSubmit,
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -32,8 +33,19 @@ export function MarkdownComposerField({
   inputClassName?: string;
   rows?: number;
   onKeyDown?: (e: KeyboardEvent<HTMLTextAreaElement>) => void;
+  /** Enter without Shift sends when the trimmed value is non-empty. */
+  onSubmit?: () => void;
 }) {
   const showPreview = hasMarkdownSyntax(value);
+
+  function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
+    onKeyDown?.(e);
+    if (e.defaultPrevented) return;
+    if (!onSubmit || e.key !== "Enter" || e.shiftKey) return;
+    e.preventDefault();
+    if (disabled || !value.trim()) return;
+    onSubmit();
+  }
 
   return (
     <div
@@ -45,7 +57,7 @@ export function MarkdownComposerField({
         onChange={(e: ChangeEvent<HTMLTextAreaElement>) =>
           onChange(clampMessageText(e.target.value))
         }
-        onKeyDown={onKeyDown}
+        onKeyDown={handleKeyDown}
         placeholder={placeholder}
         maxLength={maxLength}
         rows={rows}

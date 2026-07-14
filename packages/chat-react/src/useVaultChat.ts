@@ -1,8 +1,9 @@
 import type { VaultDevice } from "@vaultchat/crypto";
 import type { ConversationPreview } from "@vaultchat/protocol";
 import {
-  cacheDecryptedMessage,
   clearLocalChatData,
+  clearSessionBackupPassword,
+  uploadAccountBackupNow,
   createLocalStorageAdapter,
   decryptEnvelope,
   dedupeMessages,
@@ -11,9 +12,8 @@ import {
   fetchConversations,
   forEachInboxPage,
   fetchMe,
-  fetchOwnDeviceBundles,
-  fetchPreKeyBundle,
-  fetchRecipientDeviceBundles,
+  listOwnOtherDeviceIds,
+  listRecipientDeviceIds,
   formatMessageDate,
   friendlyError,
   historyDecryptOptions,
@@ -24,11 +24,13 @@ import {
   mergeConversationTimeline,
   MessageInbox,
   persistDevice,
+  persistOwnDirectMessage,
   previewText,
   ReadStateManager,
   registerOnServer,
   saveSession,
   clearSession,
+  scheduleAccountBackupRefresh,
   sendEncryptedMessage,
   sortMessages,
   syncConversationWithCache,
@@ -180,6 +182,7 @@ export function useVaultChat(options: UseVaultChatOptions = {}) {
 
         if (display.status !== "decrypt_failed") {
           await persistDevice(storage, device, sess.userId);
+          scheduleAccountBackupRefresh(storage, sess.token, device, sess.userId);
         }
 
         setPreviews((p) => ({ ...p, [peerId]: previewText(display) }));
@@ -197,7 +200,10 @@ export function useVaultChat(options: UseVaultChatOptions = {}) {
             { replaceExisting: true }
           );
           opts?.appliedGroupKeys?.add(gid);
-          if (saved) setGroupKeysVersion((v) => v + 1);
+          if (saved) {
+            setGroupKeysVersion((v) => v + 1);
+            scheduleAccountBackupRefresh(storage, sess.token, device, sess.userId);
+          }
           return;
         }
 
@@ -320,6 +326,27 @@ export function useVaultChat(options: UseVaultChatOptions = {}) {
     })();
   }, [storage, refreshConversations]);
 
+  // Persist plaintext history before the process is killed (rebuild / quit).
+  useEffect(() => {
+    if (!session) return;
+    const flush = () => {
+      const device = deviceRef.current;
+      const sess = sessionRef.current;
+      if (device && sess) {
+        void uploadAccountBackupNow(storage, sess.token, device, sess.userId);
+      }
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") flush();
+    };
+    window.addEventListener("pagehide", flush);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("pagehide", flush);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [session, storage]);
+
   async function login(identifier: string, password: string) {
     setLoading(true);
     try {
@@ -331,7 +358,8 @@ export function useVaultChat(options: UseVaultChatOptions = {}) {
         deviceId: hint?.deviceId ?? 1,
       });
 
-      const { login: loginResult, device } = await provisionDeviceForLogin(storage, {
+      const { login: loginResult, device, isNewLinkedDevice, restoredHistory } =
+        await provisionDeviceForLogin(storage, {
         identifier: id,
         password,
         userId: preLogin.userId,
@@ -355,6 +383,17 @@ export function useVaultChat(options: UseVaultChatOptions = {}) {
       readStateRef.current = new ReadStateManager(storage, stored.userId, { token: stored.token });
       await readStateRef.current.load();
       setSession(stored);
+
+      const restoredCount =
+        (restoredHistory?.messages ?? 0) + (restoredHistory?.timelines ?? 0);
+      if (restoredCount > 0) {
+        toast("Chat history restored from your account backup.", "info");
+      } else if (isNewLinkedDevice) {
+        toast(
+          "New linked device — previous messages stay on devices that already had them.",
+          "info"
+        );
+      }
       if (loginResult.emailVerified) {
         await initDevice(stored);
         await refreshConversations(stored.token);
@@ -397,7 +436,13 @@ export function useVaultChat(options: UseVaultChatOptions = {}) {
       await saveSession(storage, stored, fields.email);
       await persistDevice(storage, linked, stored.userId);
       try {
-        await mergeAndUploadAccountBackup(reg.token, fields.password, linked);
+        await mergeAndUploadAccountBackup(
+          reg.token,
+          fields.password,
+          linked,
+          storage,
+          reg.userId
+        );
       } catch {
         // non-fatal
       }
@@ -413,10 +458,21 @@ export function useVaultChat(options: UseVaultChatOptions = {}) {
 
   async function logout() {
     const userId = session?.userId ?? sessionRef.current?.userId;
+    const device = deviceRef.current;
+    const token = session?.token ?? sessionRef.current?.token;
+    try {
+      if (userId && device && token) {
+        await uploadAccountBackupNow(storage, token, device, userId);
+      }
+    } catch {
+      // best-effort
+    }
+    clearSessionBackupPassword();
     if (session) await readStateRef.current?.clear();
     if (userId) {
       await clearLocalChatData(storage, userId);
       await storage.removeItem(deviceStorageKey(userId));
+      await clearSessionBackupPassword(storage, userId);
     }
     await clearSession(storage);
     setSession(null);
@@ -535,7 +591,9 @@ export function useVaultChat(options: UseVaultChatOptions = {}) {
       }
       setMessages((prev) => {
         const merged = sortMessages(dedupeMessages([...older, ...prev]));
-        void mergeConversationTimeline(storage, sess.userId, peer.id, older);
+        void mergeConversationTimeline(storage, sess.userId, peer.id, older).then(() => {
+          scheduleAccountBackupRefresh(storage, sess.token, device, sess.userId);
+        });
         return merged;
       });
       setMessageCursor(cursor);
@@ -587,19 +645,23 @@ export function useVaultChat(options: UseVaultChatOptions = {}) {
     setSending(true);
 
     const optimisticId = crypto.randomUUID();
-    addMessage({
+    const optimistic: DisplayMessage = {
       id: optimisticId,
       from: "me",
       content: { type: "text", text },
       time: new Date().toISOString(),
       date: "Today",
       status: "sent",
-    });
+    };
+    // UI-only — do not seal optimistic UUIDs (they are not server message ids).
+    messageIdsRef.current.add(optimisticId);
+    setMessages((prev) => sortMessages(dedupeMessages([...prev, optimistic])));
+    setPreviews((p) => ({ ...p, [peer.id]: text }));
 
     try {
-      const [peerBundles, ownBundles] = await Promise.all([
-        fetchRecipientDeviceBundles(peer.id),
-        fetchOwnDeviceBundles(sess.token, sess.userId),
+      const [peerDeviceIds, ownOtherDeviceIds] = await Promise.all([
+        listRecipientDeviceIds(peer.id),
+        listOwnOtherDeviceIds(sess.token, sess.deviceId),
       ]);
       const { recipientPayload, recipientCiphertexts, senderCiphertexts } =
         await encryptOutgoingMessage(
@@ -607,8 +669,8 @@ export function useVaultChat(options: UseVaultChatOptions = {}) {
         sess.userId,
         peer.id,
         { type: "text", text },
-        peerBundles,
-        ownBundles
+        peerDeviceIds,
+        ownOtherDeviceIds
       );
       const result = await sendEncryptedMessage(
         sess.token,
@@ -616,7 +678,7 @@ export function useVaultChat(options: UseVaultChatOptions = {}) {
         recipientPayload,
         "text",
         undefined,
-        peerBundles[0]?.deviceId ?? 1,
+        peerDeviceIds[0] ?? 1,
         senderCiphertexts,
         recipientCiphertexts
       );
@@ -638,9 +700,11 @@ export function useVaultChat(options: UseVaultChatOptions = {}) {
         )
       );
       messageIdsRef.current.add(result.messageId);
-      await cacheDecryptedMessage(storage, sess.userId, sentMessage);
-      await mergeConversationTimeline(storage, sess.userId, peer.id, [sentMessage]);
+      await persistOwnDirectMessage(storage, sess.userId, peer.id, sentMessage, {
+        replaceOptimisticId: optimisticId,
+      });
       setPreviews((p) => ({ ...p, [peer.id]: text }));
+      scheduleAccountBackupRefresh(storage, sess.token, device, sess.userId);
       void refreshConversations(sess.token);
     } catch (e) {
       setMessages((prev) => {
